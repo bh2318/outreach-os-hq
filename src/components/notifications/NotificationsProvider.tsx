@@ -74,7 +74,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         { event: "INSERT", schema: "public", table: "notifications", filter: "read=eq.false" },
         (payload) => {
           console.log("notifications realtime event", payload);
-          const n = payload.new as any as YesNotification & { kind?: string };
+          const n = payload.new as unknown as YesNotification & { kind?: string };
           if ((n.type ?? n.kind) !== "yes_reply" || n.read === true || n.acted_on === true) return;
           if (seen.has(n.id)) return;
           showNow(n);
