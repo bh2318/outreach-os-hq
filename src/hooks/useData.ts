@@ -98,7 +98,7 @@ export function useRecordAction() {
       log: { action_type: any; business_name?: string | null; detail: string; outcome?: any; lead_id?: string | null };
       toast?: string;
     }) => {
-      const { error } = await supabase.from(opts.table).update(opts.patch).eq("id", opts.id);
+      const { error } = await (supabase.from(opts.table) as any).update(opts.patch).eq("id", opts.id);
       if (error) throw error;
       await logActivity(opts.log);
     },
