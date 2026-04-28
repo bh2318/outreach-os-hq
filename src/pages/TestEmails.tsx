@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 type LogEntry = {
   id: string;
-  kind: "send" | "classify" | "info" | "error";
+  kind: "send" | "classify" | "info" | "error" | "check";
   timestamp: string;
   title: string;
   detail?: string;
@@ -24,6 +24,7 @@ export default function TestEmails() {
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
