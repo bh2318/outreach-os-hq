@@ -124,6 +124,46 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
+// Guarantee the sign-off uses the full "X County" form and ends with the
+// required STOP line. Strips any state/country abbreviations the model may
+// have appended and replaces the bare county token if needed.
+function enforceCountySignoff(body: string, fullCounty: string): string {
+  const stopLine = "Reply STOP anytime — no hard feelings.";
+  // Normalize the canonical county string ("Pierce County", "Grays Harbor County", etc.)
+  const county = fullCounty.trim();
+  const bareCounty = county.replace(/\s+County$/i, "").trim();
+
+  let lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
+  // Drop trailing blank lines
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+
+  // Drop existing STOP line variants from the end so we can re-append cleanly.
+  if (lines.length && /reply\s+stop/i.test(lines[lines.length - 1])) lines.pop();
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+
+  // The last remaining line should be the location line. Replace it with the
+  // canonical "<X> County" string. If it doesn't look like a location line
+  // (e.g. it's the signature itself), append a new county line.
+  if (lines.length) {
+    const last = lines[lines.length - 1].trim();
+    const looksLikeLocation =
+      new RegExp(`\\b${bareCounty}\\b`, "i").test(last) ||
+      /,?\s*(WA|USA|United States)\b/i.test(last) ||
+      /county/i.test(last);
+    if (looksLikeLocation) {
+      lines[lines.length - 1] = county;
+    } else {
+      lines.push(county);
+    }
+  } else {
+    lines.push(county);
+  }
+
+  lines.push("");
+  lines.push(stopLine);
+  return lines.join("\n");
+}
+
 async function generateEmailWithClaude(apiKey: string, brief: string) {
   const errs: string[] = [];
   for (const model of CLAUDE_MODELS) {
@@ -203,7 +243,9 @@ Deno.serve(async (req) => {
     const leadId = await upsertLead(supabase, scenario);
 
     const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
-    const { subject, body: emailBody } = parseSubjectAndBody(rawText);
+    const parsed = parseSubjectAndBody(rawText);
+    const subject = parsed.subject;
+    let emailBody = enforceCountySignoff(parsed.body, scenario.county);
     const wc = wordCount(emailBody);
 
     const resendRes = await fetch("https://api.resend.com/emails", {
