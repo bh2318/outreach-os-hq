@@ -86,7 +86,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       supabase.removeChannel(ch);
       window.clearInterval(id);
     };
-  }, [refetch, seen]);
+  }, [refetch, seen, showNow]);
 
   const dismiss = useCallback(async (id: string) => {
     setQueue((prev) => prev.filter((n) => n.id !== id));
