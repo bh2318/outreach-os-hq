@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
         timestamp: new Date().toISOString(),
       }),
       {
-        status: 500,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
