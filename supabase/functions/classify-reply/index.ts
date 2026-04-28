@@ -39,7 +39,7 @@ async function classifyWithClaude(apiKey: string, replyText: string) {
     });
     if (res.ok) {
       const d = await res.json();
-      const raw: string = d?.content?.map((c: any) => c.text || "").join(" ").trim() || "";
+      const raw: string = d?.content?.map((c: { text?: string }) => c.text || "").join(" ").trim() || "";
       return { raw, model };
     }
     const t = await res.text();
@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
 
-    let notificationId: string | null = null;
+    const notificationId: string | null = null;
     let mockSiteId: string | null = null;
     let mockUrl: string | null = null;
 
