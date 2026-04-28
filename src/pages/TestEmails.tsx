@@ -1,226 +1,222 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
-type FeedItem = {
-  index: number;
-  scenario: string;
-  subject: string;
-  body: string;
-  fullEmail: string;
-  wordCount: number;
+type LogEntry = {
+  id: string;
+  kind: "send" | "classify" | "info" | "error";
   timestamp: string;
-  delivered: boolean;
-  error?: string;
+  title: string;
+  detail?: string;
+  data?: any;
 };
 
-const TOTAL = 10;
-const INTERVAL_MS = 60_000;
+const SCENARIOS = [
+  { key: "mikes-plumbing", label: "Mike's Plumbing — Tacoma, WA" },
+  { key: "green-thumb", label: "Green Thumb Landscaping — Olympia, WA" },
+  { key: "peak-roofing", label: "Peak Roofing Co — Aberdeen, WA" },
+  { key: "bright-clean", label: "Bright Clean Services — Centralia, WA" },
+  { key: "sunrise-hvac", label: "Sunrise HVAC — Hoquiam, WA" },
+];
 
 export default function TestEmails() {
-  const [items, setItems] = useState<FeedItem[]>([]);
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(false);
-  const [nextIn, setNextIn] = useState<number>(0);
-  const indexRef = useRef(0);
-  const timerRef = useRef<number | null>(null);
-  const tickRef = useRef<number | null>(null);
+  const [scenarioKey, setScenarioKey] = useState(SCENARIOS[0].key);
+  const [sending, setSending] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [classifying, setClassifying] = useState(false);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [lastLeadId, setLastLeadId] = useState<string | null>(null);
+  const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
 
-  async function sendOne() {
-    const i = indexRef.current;
+  function pushLog(entry: Omit<LogEntry, "id" | "timestamp">) {
+    setLog((prev) => [
+      { id: crypto.randomUUID(), timestamp: new Date().toISOString(), ...entry },
+      ...prev,
+    ]);
+  }
+
+  async function handleSendOne() {
+    if (sending) return;
+    setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "send-test-email",
-        { body: { index: i } },
-      );
+      const { data, error } = await supabase.functions.invoke("send-test-email", {
+        body: { scenarioKey },
+      });
       if (error) throw error;
-      const d = data as any;
-      setItems((prev) => [
-        {
-          index: i + 1,
-          scenario: d?.scenario ?? "unknown",
-          subject: d?.subject ?? "",
-          body: d?.body ?? "",
-          fullEmail: d?.fullEmail ?? "",
-          wordCount: d?.wordCount ?? 0,
-          timestamp: d?.timestamp ?? new Date().toISOString(),
-          delivered: !!d?.delivered,
-          error: d?.error,
-        },
-        ...prev,
-      ]);
+      if (!data?.success) throw new Error(data?.error ?? "Send failed");
+      setLastLeadId(data.leadId);
+      setLastBusinessName(data.scenario);
+      pushLog({
+        kind: "send",
+        title: `Sent → ${data.scenario}`,
+        detail: data.subject,
+        data,
+      });
+      toast.success(`Test email sent to inbox for ${data.scenario}`);
     } catch (e: any) {
-      setItems((prev) => [
-        {
-          index: i + 1,
-          scenario: "error",
-          subject: "",
-          body: "",
-          fullEmail: "",
-          wordCount: 0,
-          timestamp: new Date().toISOString(),
-          delivered: false,
-          error: e?.message ?? String(e),
-        },
-        ...prev,
-      ]);
-    }
-    indexRef.current = i + 1;
-    if (indexRef.current >= TOTAL) {
-      stop();
-      setDone(true);
-    } else {
-      setNextIn(INTERVAL_MS / 1000);
+      pushLog({ kind: "error", title: "Send failed", detail: e?.message ?? String(e) });
+      toast.error(e?.message ?? "Send failed");
+    } finally {
+      setSending(false);
     }
   }
 
-  function start() {
-    if (running) return;
-    setRunning(true);
-    setDone(false);
-    setItems([]);
-    indexRef.current = 0;
-    setNextIn(0);
-    // fire first immediately
-    sendOne();
-    timerRef.current = window.setInterval(sendOne, INTERVAL_MS);
-    tickRef.current = window.setInterval(() => {
-      setNextIn((n) => (n > 0 ? n - 1 : 0));
-    }, 1000);
-  }
+  async function handleSimulateReply() {
+    if (classifying || !replyText.trim()) return;
 
-  function stop() {
-    setRunning(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+    // Resolve the lead from the currently selected scenario.
+    // If this scenario hasn't been sent in this session, look it up by name.
+    const scenarioLabel = SCENARIOS.find((s) => s.key === scenarioKey)?.label ?? scenarioKey;
+    const businessName = scenarioLabel.split(" — ")[0];
+
+    let leadId = lastLeadId && lastBusinessName === businessName ? lastLeadId : null;
+    if (!leadId) {
+      const { data: existing } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("business_name", businessName)
+        .maybeSingle();
+      leadId = existing?.id ?? null;
     }
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
+
+    if (!leadId) {
+      toast.error("Send a test email for this business first to seed the lead.");
+      return;
+    }
+
+    setClassifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("classify-reply", {
+        body: { replyText, leadId, scenarioKey, businessName },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error ?? "Classify failed");
+
+      pushLog({
+        kind: "classify",
+        title: `Classified → ${data.intent}`,
+        detail: `"${replyText.slice(0, 80)}${replyText.length > 80 ? "…" : ""}"`,
+        data,
+      });
+
+      if (data.intent === "YES") {
+        toast.success(`YES — popup incoming. Mock site generated.`);
+      } else if (data.intent === "NO") {
+        toast(`${businessName} replied not interested. Sequence halted.`, {
+          style: { background: "#2a2a2a", color: "#cfcfcf", border: "1px solid #3a3a3a" },
+        });
+      } else {
+        toast.message(`MAYBE — routed to Replies tab as Needs Response.`);
+      }
+
+      setReplyText("");
+    } catch (e: any) {
+      pushLog({ kind: "error", title: "Classify failed", detail: e?.message ?? String(e) });
+      toast.error(e?.message ?? "Classify failed");
+    } finally {
+      setClassifying(false);
     }
   }
-
-  useEffect(() => () => stop(), []);
-
-  const delivered = items.filter((i) => i.delivered).length;
-  const failed = items.filter((i) => !i.delivered).length;
-  const avgWords =
-    items.length > 0
-      ? Math.round(items.reduce((s, i) => s + i.wordCount, 0) / items.length)
-      : 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-[1100px] mx-auto px-6 py-8">
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-semibold">Email Generation Test</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Sends 1 Claude-generated outreach email per minute to b.hemminger18@gmail.com. Stops after {TOTAL}.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {!running && !done && (
-              <button
-                onClick={start}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
-              >
-                Start test run
-              </button>
-            )}
-            {running && (
-              <button
-                onClick={stop}
-                className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card"
-              >
-                Stop
-              </button>
-            )}
-            {done && (
-              <button
-                onClick={start}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
-              >
-                Run again
-              </button>
-            )}
-          </div>
+        <header className="mb-6">
+          <h1 className="text-xl font-semibold">Email Generation Test</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Pick a test business, send one cold email, then simulate a reply to test the YES / NO / MAYBE flow.
+          </p>
         </header>
 
-        <div className="grid grid-cols-4 gap-3 mb-6">
-          <Stat label="Sent" value={`${items.length} / ${TOTAL}`} />
-          <Stat label="Delivered" value={String(delivered)} />
-          <Stat label="Failed" value={String(failed)} />
-          <Stat
-            label={running ? `Next in ${nextIn}s` : done ? "Complete" : "Idle"}
-            value={avgWords ? `${avgWords} avg words` : "—"}
-          />
-        </div>
-
-        {done && (
-          <div className="mb-6 rounded-lg border border-border bg-card p-4">
-            <h2 className="text-sm font-semibold mb-2">Run summary</h2>
-            <p className="text-sm text-muted-foreground">
-              Sent {items.length} emails. {delivered} delivered, {failed} failed. Average body length {avgWords} words.
-            </p>
+        {/* Send one test email */}
+        <section className="rounded-lg border border-border bg-card p-4 mb-4">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
+            1. Send one test email
           </div>
-        )}
+          <div className="flex flex-col md:flex-row gap-3">
+            <select
+              value={scenarioKey}
+              onChange={(e) => setScenarioKey(e.target.value)}
+              className="flex-1 rounded-md bg-background border border-border px-3 py-2 text-sm"
+            >
+              {SCENARIOS.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleSendOne}
+              disabled={sending}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {sending ? "Sending…" : "Send Test Email"}
+            </button>
+          </div>
+        </section>
 
+        {/* Simulate reply */}
+        <section className="rounded-lg border border-border bg-card p-4 mb-6">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
+            2. Simulate a reply (classified by Claude)
+          </div>
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder='Type a reply, e.g. "yeah sounds good" or "not interested"'
+              className="flex-1 rounded-md bg-background border border-border px-3 py-2 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSimulateReply();
+              }}
+            />
+            <button
+              onClick={handleSimulateReply}
+              disabled={classifying || !replyText.trim()}
+              className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+            >
+              {classifying ? "Classifying…" : "Simulate Reply"}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Reply is attributed to the business currently selected above.
+          </p>
+        </section>
+
+        {/* Live log */}
         <div className="space-y-3">
-          {items.length === 0 && (
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Live log
+          </div>
+          {log.length === 0 && (
             <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-              No emails yet. Click "Start test run".
+              No activity yet.
             </div>
           )}
-          {items.map((it) => (
-            <article
-              key={it.index}
-              className="rounded-lg border border-border bg-card p-4"
-            >
-              <div className="flex items-start justify-between gap-4 mb-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-muted-foreground">
-                      #{String(it.index).padStart(2, "0")}
-                    </span>
-                    <span className="text-sm font-semibold truncate">
-                      {it.scenario}
-                    </span>
-                    {it.delivered ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                        ✓ delivered
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-red-400 text-xs">
-                        ✗ failed
-                      </span>
-                    )}
-                  </div>
-                  {it.subject && (
-                    <p className="text-sm mt-1 truncate">
-                      <span className="text-muted-foreground">Subject: </span>
-                      {it.subject}
-                    </p>
-                  )}
+          {log.map((it) => (
+            <article key={it.id} className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-4 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge kind={it.kind} />
+                  <span className="text-sm font-semibold truncate">{it.title}</span>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(it.timestamp).toLocaleTimeString()}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {it.wordCount} words
-                  </div>
+                <div className="text-xs text-muted-foreground shrink-0">
+                  {new Date(it.timestamp).toLocaleTimeString()}
                 </div>
               </div>
-              {it.error && (
-                <pre className="text-xs text-red-400 whitespace-pre-wrap mb-2">
-                  {it.error}
+              {it.detail && (
+                <p className="text-sm text-foreground/80 mt-1">{it.detail}</p>
+              )}
+              {it.data?.body && (
+                <pre className="text-sm whitespace-pre-wrap font-sans text-foreground/90 bg-background/50 rounded p-3 border border-border/50 mt-3">
+                  {it.data.body}
                 </pre>
               )}
-              {it.body && (
-                <pre className="text-sm whitespace-pre-wrap font-sans text-foreground/90 bg-background/50 rounded p-3 border border-border/50">
-                  {it.body}
-                </pre>
+              {it.data?.intent && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  raw: {it.data.rawClassification} · model: {it.data.model}
+                </div>
               )}
             </article>
           ))}
@@ -230,13 +226,20 @@ export default function TestEmails() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Badge({ kind }: { kind: LogEntry["kind"] }) {
+  const map: Record<LogEntry["kind"], { label: string; color: string; bg: string }> = {
+    send: { label: "SEND", color: "#a7f3d0", bg: "rgba(16,185,129,.12)" },
+    classify: { label: "CLASSIFY", color: "#c4b5fd", bg: "rgba(124,92,255,.15)" },
+    info: { label: "INFO", color: "#cbd5e1", bg: "rgba(148,163,184,.15)" },
+    error: { label: "ERROR", color: "#fecaca", bg: "rgba(239,68,68,.15)" },
+  };
+  const s = map[kind];
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="text-base font-semibold mt-1">{value}</div>
-    </div>
+    <span
+      className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+      style={{ color: s.color, background: s.bg }}
+    >
+      {s.label}
+    </span>
   );
 }

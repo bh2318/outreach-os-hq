@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import TestEmails from "./pages/TestEmails.tsx";
+import { NotificationsProvider } from "@/components/notifications/NotificationsProvider";
+import { YesNotificationToast } from "@/components/notifications/YesNotificationToast";
+import { YesOverlay } from "@/components/notifications/YesOverlay";
 
 const queryClient = new QueryClient();
 
@@ -14,14 +17,18 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/test-emails" element={<TestEmails />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <NotificationsProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/test-emails" element={<TestEmails />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+        <YesNotificationToast />
+        <YesOverlay />
+      </NotificationsProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

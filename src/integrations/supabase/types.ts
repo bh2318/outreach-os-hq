@@ -153,8 +153,10 @@ export type Database = {
       leads: {
         Row: {
           address: string | null
+          archived: boolean
           business_name: string
           city: string | null
+          county: string | null
           created_at: string
           email: string | null
           id: string
@@ -172,8 +174,10 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          archived?: boolean
           business_name: string
           city?: string | null
+          county?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -191,8 +195,10 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          archived?: boolean
           business_name?: string
           city?: string | null
+          county?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -253,6 +259,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notifications: {
+        Row: {
+          acted_at: string | null
+          business_name: string
+          created_at: string
+          id: string
+          kind: string
+          lead_id: string | null
+          mock_site_id: string | null
+          reply_full: string | null
+          reply_preview: string | null
+          status: string
+        }
+        Insert: {
+          acted_at?: string | null
+          business_name: string
+          created_at?: string
+          id?: string
+          kind?: string
+          lead_id?: string | null
+          mock_site_id?: string | null
+          reply_full?: string | null
+          reply_preview?: string | null
+          status?: string
+        }
+        Update: {
+          acted_at?: string | null
+          business_name?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          lead_id?: string | null
+          mock_site_id?: string | null
+          reply_full?: string | null
+          reply_preview?: string | null
+          status?: string
+        }
+        Relationships: []
       }
       outreach_emails: {
         Row: {
