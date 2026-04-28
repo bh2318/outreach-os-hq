@@ -102,22 +102,6 @@ Deno.serve(async (req) => {
         console.error("generate-mock-site invoke failed", e);
       }
 
-      const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
-      const { data: notif } = await supabase
-        .from("notifications")
-        .insert({
-          kind: "yes_reply",
-          business_name: businessName ?? "Unknown",
-          reply_preview: firstLine,
-          reply_full: replyText,
-          lead_id: leadId,
-          mock_site_id: mockSiteId,
-          status: "unread",
-        })
-        .select("id")
-        .single();
-      notificationId = notif?.id ?? null;
-
       await supabase.from("activity_log").insert({
         lead_id: leadId,
         business_name: businessName ?? null,
