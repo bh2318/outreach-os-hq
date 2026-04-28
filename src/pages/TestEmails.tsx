@@ -10,7 +10,13 @@ type LogEntry = {
   timestamp: string;
   title: string;
   detail?: string;
-  data?: unknown;
+  data?: {
+    body?: string;
+    intent?: string;
+    rawClassification?: string;
+    model?: string;
+    [key: string]: unknown;
+  };
 };
 
 const SCENARIOS = [
