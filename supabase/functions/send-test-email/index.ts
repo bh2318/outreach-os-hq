@@ -25,7 +25,7 @@ export const SCENARIOS = [
     website_url: null,
     site_score: null,
     brief:
-      "Mike's Plumbing in Tacoma, WA. No website at all. 47 Google reviews, 4.8 star average. Owner name unknown — address the business itself.",
+      "Mike's Plumbing in Tacoma, Pierce County, WA. No website at all. 47 Google reviews, 4.8 star average. Owner name unknown — address the business itself. Sign-off county line must read exactly: Pierce County.",
   },
   {
     key: "green-thumb",
@@ -40,7 +40,7 @@ export const SCENARIOS = [
     website_url: "https://greenthumb.example.com",
     site_score: 22,
     brief:
-      "Green Thumb Landscaping in Olympia, WA. Owner is Sandra. They have a website but it scores 22/100. 31 Google reviews, 4.6 star average.",
+      "Green Thumb Landscaping in Olympia, Thurston County, WA. Owner is Sandra. They have a website but it scores 22/100. 31 Google reviews, 4.6 star average. Sign-off county line must read exactly: Thurston County.",
   },
   {
     key: "peak-roofing",
@@ -55,7 +55,7 @@ export const SCENARIOS = [
     website_url: "https://peakroofing.example.com",
     site_score: 38,
     brief:
-      "Peak Roofing Co in Aberdeen, WA. Owner name unknown. Website scores 38/100. 12 Google reviews, 4.9 star average.",
+      "Peak Roofing Co in Aberdeen, Grays Harbor County, WA. Owner name unknown. Website scores 38/100. 12 Google reviews, 4.9 star average. Sign-off county line must read exactly: Grays Harbor County.",
   },
   {
     key: "bright-clean",
@@ -70,7 +70,7 @@ export const SCENARIOS = [
     website_url: "https://brightclean.example.com",
     site_score: 14,
     brief:
-      "Bright Clean Services in Centralia, WA. Owner is Maria. Website scores 14/100. 89 Google reviews, 4.7 star average.",
+      "Bright Clean Services in Centralia, Lewis County, WA. Owner is Maria. Website scores 14/100. 89 Google reviews, 4.7 star average. Sign-off county line must read exactly: Lewis County.",
   },
   {
     key: "sunrise-hvac",
@@ -85,7 +85,7 @@ export const SCENARIOS = [
     website_url: null,
     site_score: null,
     brief:
-      "Sunrise HVAC in Hoquiam, WA. Owner is Dave. No website at all. 8 Google reviews, 5.0 star average.",
+      "Sunrise HVAC in Hoquiam, Grays Harbor County, WA. Owner is Dave. No website at all. 8 Google reviews, 5.0 star average. Sign-off county line must read exactly: Grays Harbor County.",
   },
 ];
 
