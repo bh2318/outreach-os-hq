@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useNotifications } from "@/components/notifications/NotificationsProvider";
 
 type LogEntry = {
   id: string;
@@ -20,6 +21,7 @@ const SCENARIOS = [
 ];
 
 export default function TestEmails() {
+  const { showNow } = useNotifications();
   const [scenarioKey, setScenarioKey] = useState(SCENARIOS[0].key);
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -91,35 +93,48 @@ export default function TestEmails() {
 
     setClassifying(true);
     try {
-      // 1. Insert the inbound reply row.
-      const { error: insErr } = await supabase.from("incoming_replies").insert({
-        lead_id: leadId,
-        reply_text: replyText,
-      });
-      if (insErr) throw insErr;
-
       pushLog({
         kind: "info",
-        title: `Reply queued → ${businessName ?? "lead"}`,
+        title: `Reply submitted → ${businessName ?? "lead"}`,
         detail: `"${replyText.slice(0, 80)}${replyText.length > 80 ? "…" : ""}"`,
       });
 
-      // 2. Trigger processing immediately.
-      const { data, error } = await supabase.functions.invoke("process-reply", {});
+      const { data, error } = await supabase.functions.invoke("classify-reply", {
+        body: { replyText, leadId, scenarioKey, businessName },
+      });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? "process-reply failed");
+      if (!data?.success) throw new Error(data?.error ?? "classify-reply failed");
 
-      const mine = (data.results ?? []).find((r: any) => r.businessName === businessName) ?? data.results?.[0];
-      const intent = mine?.intent ?? "?";
+      const intent = data.intent ?? "?";
 
       pushLog({
         kind: "classify",
         title: `Classified → ${intent}`,
-        detail: `${data.processed} reply(s) processed`,
+        detail: `Claude model: ${data.model ?? "unknown"}`,
         data: { ...data, intent },
       });
 
       if (intent === "YES") {
+        const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
+        const { data: notification, error: notificationError } = await supabase
+          .from("notifications")
+          .insert({
+            lead_id: leadId,
+            type: "yes_reply",
+            kind: "yes_reply",
+            business_name: businessName ?? "Unknown",
+            reply_body: replyText,
+            reply_full: replyText,
+            reply_preview: firstLine,
+            read: false,
+            acted_on: false,
+            status: "unread",
+            mock_site_id: data.mockSiteId ?? null,
+          })
+          .select("*")
+          .single();
+        if (notificationError) throw notificationError;
+        if (notification) showNow(notification as any);
         toast.success(`YES — popup incoming for ${businessName}.`);
       } else if (intent === "NO") {
         toast(`${businessName} replied not interested. Lead archived.`, {
