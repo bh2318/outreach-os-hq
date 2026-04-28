@@ -39,7 +39,7 @@ async function classifyWithClaude(apiKey: string, replyText: string) {
     });
     if (res.ok) {
       const d = await res.json();
-      const raw: string = d?.content?.map((c: any) => c.text || "").join(" ").trim() || "";
+      const raw: string = d?.content?.map((c: { text?: string }) => c.text || "").join(" ").trim() || "";
       return { raw, model };
     }
     const t = await res.text();
@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
 
-    let notificationId: string | null = null;
+    const notificationId: string | null = null;
     let mockSiteId: string | null = null;
     let mockUrl: string | null = null;
 
@@ -101,22 +101,6 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error("generate-mock-site invoke failed", e);
       }
-
-      const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
-      const { data: notif } = await supabase
-        .from("notifications")
-        .insert({
-          kind: "yes_reply",
-          business_name: businessName ?? "Unknown",
-          reply_preview: firstLine,
-          reply_full: replyText,
-          lead_id: leadId,
-          mock_site_id: mockSiteId,
-          status: "unread",
-        })
-        .select("id")
-        .single();
-      notificationId = notif?.id ?? null;
 
       await supabase.from("activity_log").insert({
         lead_id: leadId,

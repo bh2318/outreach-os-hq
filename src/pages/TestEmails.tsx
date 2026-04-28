@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useNotifications } from "@/components/notifications/NotificationsProvider";
+import type { YesNotification } from "@/components/notifications/NotificationsProvider";
 
 type LogEntry = {
   id: string;
@@ -8,7 +10,13 @@ type LogEntry = {
   timestamp: string;
   title: string;
   detail?: string;
-  data?: any;
+  data?: {
+    body?: string;
+    intent?: string;
+    rawClassification?: string;
+    model?: string;
+    [key: string]: unknown;
+  };
 };
 
 const SCENARIOS = [
@@ -19,7 +27,12 @@ const SCENARIOS = [
   { key: "sunrise-hvac", label: "Sunrise HVAC — Hoquiam, WA" },
 ];
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function TestEmails() {
+  const { showNow } = useNotifications();
   const [scenarioKey, setScenarioKey] = useState(SCENARIOS[0].key);
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -54,9 +67,10 @@ export default function TestEmails() {
         data,
       });
       toast.success(`Test email sent to inbox for ${data.scenario}`);
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Send failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Send failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Send failed");
+      pushLog({ kind: "error", title: "Send failed", detail: message });
+      toast.error(message);
     } finally {
       setSending(false);
     }
@@ -91,35 +105,48 @@ export default function TestEmails() {
 
     setClassifying(true);
     try {
-      // 1. Insert the inbound reply row.
-      const { error: insErr } = await supabase.from("incoming_replies").insert({
-        lead_id: leadId,
-        reply_text: replyText,
-      });
-      if (insErr) throw insErr;
-
       pushLog({
         kind: "info",
-        title: `Reply queued → ${businessName ?? "lead"}`,
+        title: `Reply submitted → ${businessName ?? "lead"}`,
         detail: `"${replyText.slice(0, 80)}${replyText.length > 80 ? "…" : ""}"`,
       });
 
-      // 2. Trigger processing immediately.
-      const { data, error } = await supabase.functions.invoke("process-reply", {});
+      const { data, error } = await supabase.functions.invoke("classify-reply", {
+        body: { replyText, leadId, scenarioKey, businessName },
+      });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? "process-reply failed");
+      if (!data?.success) throw new Error(data?.error ?? "classify-reply failed");
 
-      const mine = (data.results ?? []).find((r: any) => r.businessName === businessName) ?? data.results?.[0];
-      const intent = mine?.intent ?? "?";
+      const intent = data.intent ?? "?";
 
       pushLog({
         kind: "classify",
         title: `Classified → ${intent}`,
-        detail: `${data.processed} reply(s) processed`,
+        detail: `Claude model: ${data.model ?? "unknown"}`,
         data: { ...data, intent },
       });
 
       if (intent === "YES") {
+        const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
+        const { data: notification, error: notificationError } = await supabase
+          .from("notifications")
+          .insert({
+            lead_id: leadId,
+            type: "yes_reply",
+            kind: "yes_reply",
+            business_name: businessName ?? "Unknown",
+            reply_body: replyText,
+            reply_full: replyText,
+            reply_preview: firstLine,
+            read: false,
+            acted_on: false,
+            status: "unread",
+            mock_site_id: data.mockSiteId ?? null,
+          })
+          .select("*")
+          .single();
+        if (notificationError) throw notificationError;
+        if (notification) showNow(notification as YesNotification);
         toast.success(`YES — popup incoming for ${businessName}.`);
       } else if (intent === "NO") {
         toast(`${businessName} replied not interested. Lead archived.`, {
@@ -130,9 +157,10 @@ export default function TestEmails() {
       }
 
       setReplyText("");
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Simulate reply failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Simulate reply failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Simulate reply failed");
+      pushLog({ kind: "error", title: "Simulate reply failed", detail: message });
+      toast.error(message);
     } finally {
       setClassifying(false);
     }
@@ -150,14 +178,15 @@ export default function TestEmails() {
         title: `Checked replies → ${data.processed} processed`,
         detail:
           (data.results ?? [])
-            .map((r: any) => `${r.businessName ?? r.id}: ${r.intent ?? r.error}`)
+            .map((r: { businessName?: string; id?: string; intent?: string; error?: string }) => `${r.businessName ?? r.id}: ${r.intent ?? r.error}`)
             .join(" · ") || "No pending replies.",
         data,
       });
       toast.success(`Checked replies — ${data.processed} processed.`);
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Check replies failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Check replies failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Check replies failed");
+      pushLog({ kind: "error", title: "Check replies failed", detail: message });
+      toast.error(message);
     } finally {
       setChecking(false);
     }

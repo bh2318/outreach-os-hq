@@ -90,7 +90,7 @@ export const SCENARIOS = [
 ];
 
 const SYSTEM_PROMPT =
-  "You write cold outreach emails for Brad Hemminger, a local web designer. Under 150 words total including subject line. Subject line must start with the words \"Quick question for\" followed by the business name. Open with one short specific compliment about their reviews or rating — one sentence only, make it feel genuinely observed. Then one sentence naturally working in the phrase \"your online presence hasn't quite caught up with your reputation yet\" — do not open with this, bury it in the middle. Then tell them Brad can put together a free mock website and send it over with a full quote, pricing, and everything they need to know about the process. One ask only — just reply and he will send everything over. Sign off as Brad Hemminger on one line, then their county name alone on the next line — never write WA or USA or any state abbreviation, only the county name. Final line always: Reply STOP anytime — no hard feelings. Short punchy sentences. No filler words. No phrases like here's the thing, we build, convert leads, fix this, potential customers, or strings attached. Feels like a real neighbor who noticed their business, not a marketer. Output subject line on line one, blank line, then body. Nothing else.";
+  "You write cold outreach emails for Brad Hemminger a local web designer. Output the subject line on line one then a blank line then the email body. Nothing else. No labels no preamble. Follow every rule below exactly. Rule 1 under 150 words total. Rule 2 subject line must be exactly Quick question for followed by the business name nothing else. Rule 3 first sentence is one short genuine compliment about their review count or star rating. Rule 4 second paragraph contains exactly this phrase and nothing else changes it: your online presence hasn't quite caught up with your reputation yet. Rule 5 third paragraph tells them Brad can send over a free mock website along with a full quote pricing and everything they need to know about the process. Rule 6 one ask only — just reply and he will send everything over. Rule 7 sign off is exactly two lines — line one is Brad Hemminger — line two is the county name followed by the word County for example Pierce County or Lewis County never write WA or USA or any abbreviation. Rule 8 final line is exactly: Reply STOP anytime — no hard feelings. Rule 9 never use these words or phrases: here's the thing, Bradford, potential customers, fix this, convert, strings attached, we build, excited, thrilled. Rule 10 short sentences plain words grade 6 reading level feels like a real neighbor not a marketer.";
 
 const RECIPIENT = "b.hemminger18@gmail.com";
 const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>";
@@ -109,7 +109,7 @@ function parseSubjectAndBody(text: string): { subject: string; body: string } {
     const line = lines[i].trim();
     if (!line) continue;
     const normalizedLine = line.replace(/^\*+|\*+$/g, "").trim();
-    const m = normalizedLine.match(/^subject\s*[:\-]\s*(.+)$/i);
+    const m = normalizedLine.match(/^subject\s*[:-]\s*(.+)$/i);
     if (m) subject = m[1].replace(/^\*+|\*+$/g, "").trim();
     else subject = normalizedLine;
     bodyStart = i + 1;
@@ -133,7 +133,7 @@ function enforceCountySignoff(body: string, fullCounty: string): string {
   const county = fullCounty.trim();
   const bareCounty = county.replace(/\s+County$/i, "").trim();
 
-  let lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
+  const lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
   // Drop trailing blank lines
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
@@ -183,7 +183,7 @@ async function generateEmailWithClaude(apiKey: string, brief: string) {
     });
     if (res.ok) {
       const d = await res.json();
-      const rawText: string = d?.content?.map((c: any) => c.text || "").join("\n").trim() || "";
+      const rawText: string = d?.content?.map((c: { text?: string }) => c.text || "").join("\n").trim() || "";
       return { rawText, model };
     }
     const t = await res.text();
@@ -193,7 +193,7 @@ async function generateEmailWithClaude(apiKey: string, brief: string) {
   throw new Error(`Claude unavailable. Tried: ${errs.join(" | ")}`);
 }
 
-async function upsertLead(supabase: any, scenario: typeof SCENARIOS[number]): Promise<string | null> {
+async function upsertLead(supabase: ReturnType<typeof createClient>, scenario: typeof SCENARIOS[number]): Promise<string | null> {
   // Find existing by business_name
   const { data: existing } = await supabase
     .from("leads")
@@ -245,7 +245,7 @@ Deno.serve(async (req) => {
     const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
     const parsed = parseSubjectAndBody(rawText);
     const subject = parsed.subject;
-    let emailBody = enforceCountySignoff(parsed.body, scenario.county);
+    const emailBody = enforceCountySignoff(parsed.body, scenario.county);
     const wc = wordCount(emailBody);
 
     const resendRes = await fetch("https://api.resend.com/emails", {

@@ -298,39 +298,51 @@ export type Database = {
       notifications: {
         Row: {
           acted_at: string | null
+          acted_on: boolean
           business_name: string
           created_at: string
           id: string
           kind: string
           lead_id: string | null
           mock_site_id: string | null
+          read: boolean
+          reply_body: string | null
           reply_full: string | null
           reply_preview: string | null
           status: string
+          type: string
         }
         Insert: {
           acted_at?: string | null
+          acted_on?: boolean
           business_name: string
           created_at?: string
           id?: string
           kind?: string
           lead_id?: string | null
           mock_site_id?: string | null
+          read?: boolean
+          reply_body?: string | null
           reply_full?: string | null
           reply_preview?: string | null
           status?: string
+          type?: string
         }
         Update: {
           acted_at?: string | null
+          acted_on?: boolean
           business_name?: string
           created_at?: string
           id?: string
           kind?: string
           lead_id?: string | null
           mock_site_id?: string | null
+          read?: boolean
+          reply_body?: string | null
           reply_full?: string | null
           reply_preview?: string | null
           status?: string
+          type?: string
         }
         Relationships: []
       }
