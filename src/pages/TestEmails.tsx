@@ -223,9 +223,16 @@ export default function TestEmails() {
             >
               {classifying ? "Classifying…" : "Simulate Reply"}
             </button>
+            <button
+              onClick={handleCheckReplies}
+              disabled={checking}
+              className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+            >
+              {checking ? "Checking…" : "Check Replies"}
+            </button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Reply is attributed to the business currently selected above.
+            Simulated replies are queued against the most recent test email and processed by Claude.
           </p>
         </section>
 
@@ -275,6 +282,7 @@ function Badge({ kind }: { kind: LogEntry["kind"] }) {
   const map: Record<LogEntry["kind"], { label: string; color: string; bg: string }> = {
     send: { label: "SEND", color: "#a7f3d0", bg: "rgba(16,185,129,.12)" },
     classify: { label: "CLASSIFY", color: "#c4b5fd", bg: "rgba(124,92,255,.15)" },
+    check: { label: "CHECK", color: "#fde68a", bg: "rgba(234,179,8,.15)" },
     info: { label: "INFO", color: "#cbd5e1", bg: "rgba(148,163,184,.15)" },
     error: { label: "ERROR", color: "#fecaca", bg: "rgba(239,68,68,.15)" },
   };
