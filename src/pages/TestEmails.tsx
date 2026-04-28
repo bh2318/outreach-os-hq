@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
+import type { YesNotification } from "@/components/notifications/NotificationsProvider";
 
 type LogEntry = {
   id: string;
@@ -9,7 +10,7 @@ type LogEntry = {
   timestamp: string;
   title: string;
   detail?: string;
-  data?: any;
+  data?: unknown;
 };
 
 const SCENARIOS = [
@@ -19,6 +20,10 @@ const SCENARIOS = [
   { key: "bright-clean", label: "Bright Clean Services — Centralia, WA" },
   { key: "sunrise-hvac", label: "Sunrise HVAC — Hoquiam, WA" },
 ];
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function TestEmails() {
   const { showNow } = useNotifications();
@@ -56,9 +61,10 @@ export default function TestEmails() {
         data,
       });
       toast.success(`Test email sent to inbox for ${data.scenario}`);
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Send failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Send failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Send failed");
+      pushLog({ kind: "error", title: "Send failed", detail: message });
+      toast.error(message);
     } finally {
       setSending(false);
     }
@@ -134,7 +140,7 @@ export default function TestEmails() {
           .select("*")
           .single();
         if (notificationError) throw notificationError;
-        if (notification) showNow(notification as any);
+        if (notification) showNow(notification as YesNotification);
         toast.success(`YES — popup incoming for ${businessName}.`);
       } else if (intent === "NO") {
         toast(`${businessName} replied not interested. Lead archived.`, {
@@ -145,9 +151,10 @@ export default function TestEmails() {
       }
 
       setReplyText("");
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Simulate reply failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Simulate reply failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Simulate reply failed");
+      pushLog({ kind: "error", title: "Simulate reply failed", detail: message });
+      toast.error(message);
     } finally {
       setClassifying(false);
     }
@@ -165,14 +172,15 @@ export default function TestEmails() {
         title: `Checked replies → ${data.processed} processed`,
         detail:
           (data.results ?? [])
-            .map((r: any) => `${r.businessName ?? r.id}: ${r.intent ?? r.error}`)
+            .map((r: { businessName?: string; id?: string; intent?: string; error?: string }) => `${r.businessName ?? r.id}: ${r.intent ?? r.error}`)
             .join(" · ") || "No pending replies.",
         data,
       });
       toast.success(`Checked replies — ${data.processed} processed.`);
-    } catch (e: any) {
-      pushLog({ kind: "error", title: "Check replies failed", detail: e?.message ?? String(e) });
-      toast.error(e?.message ?? "Check replies failed");
+    } catch (e) {
+      const message = getErrorMessage(e, "Check replies failed");
+      pushLog({ kind: "error", title: "Check replies failed", detail: message });
+      toast.error(message);
     } finally {
       setChecking(false);
     }
