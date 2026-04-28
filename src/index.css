@@ -2,104 +2,206 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Outreach OS — true dark, purple brand. All colors HSL. */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* True dark surfaces */
+    --background: 240 7% 6%;          /* #0e0e10 */
+    --surface: 240 4% 9%;             /* #141416 */
+    --surface-2: 240 6% 12%;          /* slightly raised */
+    --foreground: 47 11% 87%;         /* #e2e0da */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 240 4% 9%;
+    --card-foreground: 47 11% 87%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 240 4% 9%;
+    --popover-foreground: 47 11% 87%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand purple */
+    --primary: 245 43% 50%;           /* #534AB7 */
+    --primary-foreground: 47 11% 95%;
+    --primary-hover: 245 62% 67%;     /* #7F77DD */
+    --primary-fill: 245 32% 14%;      /* #1a1830 */
+    --primary-fill-border: 247 46% 37%; /* #3C3489 */
+    --primary-fill-text: 245 64% 80%; /* #AFA9EC */
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 240 6% 12%;
+    --secondary-foreground: 47 11% 87%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 240 4% 9%;
+    --muted-foreground: 48 4% 53%;    /* #888780 */
+    --faint: 48 3% 28%;               /* #444441 */
+    --subtle: 48 3% 37%;              /* #5F5E5A */
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 240 6% 12%;
+    --accent-foreground: 47 11% 87%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 70% 60%;
+    --destructive-foreground: 47 11% 95%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 240 9% 13%;             /* #1e1e24 */
+    --border-hover: 240 6% 17%;       /* #2a2a2f */
+    --border-faint: 240 9% 11%;       /* #1a1a1f */
+    --input: 240 9% 13%;
+    --ring: 245 62% 67%;
 
-    --radius: 0.5rem;
+    /* Status — text + fill pairs (always on dark) */
+    --status-red-text: 0 75% 76%;        /* #F09595 */
+    --status-red-fill: 0 39% 17%;        /* #3d1a1a */
+    --status-amber-text: 33 93% 72%;     /* #FAC775 */
+    --status-amber-fill: 32 49% 12%;     /* #2d2010 */
+    --status-blue-text: 209 71% 72%;     /* #85B7EB */
+    --status-blue-fill: 213 61% 13%;     /* #0d1e34 */
+    --status-green-text: 84 49% 56%;     /* #97C459 */
+    --status-green-fill: 120 45% 9%;     /* #0d2210 */
+    --status-gray-text: 48 3% 37%;
+    --status-gray-fill: 240 9% 13%;
 
-    --sidebar-background: 0 0% 98%;
+    --metric-value: 48 6% 68%;        /* #B4B2A9 */
 
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --radius: 10px;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
+  * { @apply border-border; }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    font-size: 12px;
+  }
+  .font-mono { font-family: 'Geist Mono', 'DM Mono', ui-monospace, monospace; }
+}
+
+@layer components {
+  .surface-card {
+    background: hsl(var(--surface));
+    border: 1px solid hsl(var(--border));
+    border-radius: 10px;
+    padding: 13px 14px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: hsl(var(--muted-foreground));
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 20px;
+    padding: 3px 8px;
+    line-height: 1;
+  }
+
+  .badge-pill {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 20px;
+    padding: 2px 6px;
+    line-height: 1.4;
+    letter-spacing: 0.2px;
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid hsl(var(--border-hover));
+    border-radius: 7px;
+    font-size: 11px;
+    padding: 5px 12px;
+    color: hsl(var(--foreground));
+    transition: background 120ms ease, border-color 120ms ease;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .btn-ghost:hover { background: hsl(var(--border)); }
+  .btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: hsl(var(--primary-fill));
+    border: 1px solid hsl(var(--primary-fill-border));
+    color: hsl(var(--primary-fill-text));
+    border-radius: 7px;
+    font-size: 11px;
+    padding: 5px 12px;
+    transition: background 120ms ease;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .btn-primary:hover { background: hsl(var(--primary) / 0.35); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-green {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: hsl(var(--status-green-fill));
+    border: 1px solid hsl(var(--status-green-text) / 0.4);
+    color: hsl(var(--status-green-text));
+    border-radius: 7px;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .btn-green:hover { background: hsl(var(--status-green-text) / 0.18); }
+
+  .label-uppercase {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: hsl(var(--muted-foreground));
+    font-weight: 500;
+  }
+
+  .input-base {
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 12px;
+    color: hsl(var(--foreground));
+    outline: none;
+    transition: border-color 120ms ease;
+  }
+  .input-base:focus { border-color: hsl(var(--primary-fill-border)); }
+  .input-base::placeholder { color: hsl(var(--subtle)); }
+
+  .priority-bar {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+  }
+
+  /* Pulsing dot */
+  .pulse-dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: hsl(var(--status-green-text));
+    box-shadow: 0 0 0 0 hsl(var(--status-green-text) / 0.6);
+    animation: pulse-ring 2s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0 hsl(var(--status-green-text) / 0.5); }
+    70%  { box-shadow: 0 0 0 6px hsl(var(--status-green-text) / 0); }
+    100% { box-shadow: 0 0 0 0 hsl(var(--status-green-text) / 0); }
   }
 }
+
+/* Subtle scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: hsl(var(--background)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--border-hover)); }
