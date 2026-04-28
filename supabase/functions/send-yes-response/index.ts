@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
 
     // Mark notification acted
     if (notificationId) {
-      await supabase.from("notifications").update({ status: "acted", acted_at: new Date().toISOString() }).eq("id", notificationId);
+      await supabase.from("notifications").update({ status: "acted", acted_at: new Date().toISOString(), read: true, acted_on: true }).eq("id", notificationId);
     }
 
     // Activity log
