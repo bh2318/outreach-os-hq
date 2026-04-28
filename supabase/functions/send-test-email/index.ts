@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-3-5-20251001",
+        model: "claude-3-5-haiku-20241022",
         max_tokens: 250,
         system: SYSTEM_PROMPT,
         messages: [
