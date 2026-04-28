@@ -9,9 +9,9 @@ const corsHeaders = {
 };
 
 const CLAUDE_MODELS = [
-  "claude-haiku-3-5-20251001",
-  "claude-3-5-haiku-latest",
-  "claude-3-haiku-20240307",
+  "claude-haiku-4-5-20251001",
+  "claude-sonnet-4-5-20250929",
+  "claude-opus-4-5-20251101",
 ];
 
 function buildPrompt(lead: any): string {
