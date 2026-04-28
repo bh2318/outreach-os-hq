@@ -109,7 +109,7 @@ function parseSubjectAndBody(text: string): { subject: string; body: string } {
     const line = lines[i].trim();
     if (!line) continue;
     const normalizedLine = line.replace(/^\*+|\*+$/g, "").trim();
-    const m = normalizedLine.match(/^subject\s*[:\-]\s*(.+)$/i);
+    const m = normalizedLine.match(/^subject\s*[:-]\s*(.+)$/i);
     if (m) subject = m[1].replace(/^\*+|\*+$/g, "").trim();
     else subject = normalizedLine;
     bodyStart = i + 1;
@@ -133,7 +133,7 @@ function enforceCountySignoff(body: string, fullCounty: string): string {
   const county = fullCounty.trim();
   const bareCounty = county.replace(/\s+County$/i, "").trim();
 
-  let lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
+  const lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
   // Drop trailing blank lines
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
@@ -183,7 +183,7 @@ async function generateEmailWithClaude(apiKey: string, brief: string) {
     });
     if (res.ok) {
       const d = await res.json();
-      const rawText: string = d?.content?.map((c: any) => c.text || "").join("\n").trim() || "";
+      const rawText: string = d?.content?.map((c: { text?: string }) => c.text || "").join("\n").trim() || "";
       return { rawText, model };
     }
     const t = await res.text();
@@ -193,7 +193,7 @@ async function generateEmailWithClaude(apiKey: string, brief: string) {
   throw new Error(`Claude unavailable. Tried: ${errs.join(" | ")}`);
 }
 
-async function upsertLead(supabase: any, scenario: typeof SCENARIOS[number]): Promise<string | null> {
+async function upsertLead(supabase: ReturnType<typeof createClient>, scenario: typeof SCENARIOS[number]): Promise<string | null> {
   // Find existing by business_name
   const { data: existing } = await supabase
     .from("leads")
@@ -245,7 +245,7 @@ Deno.serve(async (req) => {
     const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
     const parsed = parseSubjectAndBody(rawText);
     const subject = parsed.subject;
-    let emailBody = enforceCountySignoff(parsed.body, scenario.county);
+    const emailBody = enforceCountySignoff(parsed.body, scenario.county);
     const wc = wordCount(emailBody);
 
     const resendRes = await fetch("https://api.resend.com/emails", {
