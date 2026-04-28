@@ -60,11 +60,12 @@ function parseSubjectAndBody(text: string): { subject: string; body: string } {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    const m = line.match(/^subject\s*[:\-]\s*(.+)$/i);
+    const normalizedLine = line.replace(/^\*+|\*+$/g, "").trim();
+    const m = normalizedLine.match(/^subject\s*[:\-]\s*(.+)$/i);
     if (m) {
-      subject = m[1].trim();
+      subject = m[1].replace(/^\*+|\*+$/g, "").trim();
     } else {
-      subject = line;
+      subject = normalizedLine;
     }
     bodyStart = i + 1;
     break;
