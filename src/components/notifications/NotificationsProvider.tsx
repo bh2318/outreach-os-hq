@@ -71,7 +71,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       .channel("notifications-feed")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications" },
+        { event: "INSERT", schema: "public", table: "notifications", filter: "read=eq.false" },
         (payload) => {
           console.log("notifications realtime event", payload);
           const n = payload.new as any as YesNotification & { kind?: string };
