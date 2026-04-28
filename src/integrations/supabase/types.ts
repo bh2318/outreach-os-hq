@@ -93,6 +93,41 @@ export type Database = {
           },
         ]
       }
+      incoming_replies: {
+        Row: {
+          classified_as: string | null
+          id: string
+          lead_id: string | null
+          processed: boolean
+          received_at: string
+          reply_text: string
+        }
+        Insert: {
+          classified_as?: string | null
+          id?: string
+          lead_id?: string | null
+          processed?: boolean
+          received_at?: string
+          reply_text: string
+        }
+        Update: {
+          classified_as?: string | null
+          id?: string
+          lead_id?: string | null
+          processed?: boolean
+          received_at?: string
+          reply_text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incoming_replies_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           deal_id: string | null
