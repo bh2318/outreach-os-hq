@@ -51,8 +51,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications" },
         (payload) => {
-          const n = payload.new as YesNotification;
-          if (n.kind !== ("yes_reply" as any) && (n as any).kind !== "yes_reply") return;
+          const n = payload.new as any as YesNotification & { kind?: string };
+          if (n.kind && n.kind !== "yes_reply") return;
           if (seen.has(n.id)) return;
           seen.add(n.id);
           setQueue((prev) => [n, ...prev]);
