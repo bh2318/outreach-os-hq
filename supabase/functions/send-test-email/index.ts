@@ -46,6 +46,11 @@ const SYSTEM_PROMPT =
 
 const RECIPIENT = "b.hemminger18@gmail.com";
 const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>";
+const CLAUDE_MODELS = [
+  "claude-haiku-4-5-20251001",
+  "claude-3-5-haiku-latest",
+  "claude-3-haiku-20240307",
+];
 
 function parseSubjectAndBody(text: string): { subject: string; body: string } {
   const cleaned = text.trim();
@@ -73,6 +78,48 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
+async function generateEmailWithClaude(apiKey: string, scenarioBrief: string) {
+  const modelErrors: string[] = [];
+
+  for (const model of CLAUDE_MODELS) {
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 250,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Write the outreach email for this business:\n\n${scenarioBrief}`,
+          },
+        ],
+      }),
+    });
+
+    if (claudeRes.ok) {
+      const claudeData = await claudeRes.json();
+      const rawText: string =
+        claudeData?.content?.map((c: any) => c.text || "").join("\n").trim() || "";
+      return { rawText, model };
+    }
+
+    const errorText = await claudeRes.text();
+    modelErrors.push(`${model}: ${claudeRes.status} ${errorText}`);
+
+    if (![400, 404].includes(claudeRes.status)) {
+      break;
+    }
+  }
+
+  throw new Error(`Claude model unavailable. Tried: ${modelErrors.join(" | ")}`);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -87,34 +134,7 @@ Deno.serve(async (req) => {
     const { index = 0 } = await req.json().catch(() => ({ index: 0 }));
     const scenario = SCENARIOS[index % SCENARIOS.length];
 
-    // Call Claude
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": ANTHROPIC,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-haiku-20241022",
-        max_tokens: 250,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `Write the outreach email for this business:\n\n${scenario.brief}`,
-          },
-        ],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const t = await claudeRes.text();
-      throw new Error(`Claude error ${claudeRes.status}: ${t}`);
-    }
-    const claudeData = await claudeRes.json();
-    const rawText: string =
-      claudeData?.content?.map((c: any) => c.text || "").join("\n").trim() || "";
+    const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
 
     const { subject, body } = parseSubjectAndBody(rawText);
     const fullEmail = `Subject: ${subject}\n\n${body}`;
@@ -148,6 +168,7 @@ Deno.serve(async (req) => {
         body,
         fullEmail,
         wordCount: wc,
+        model,
         timestamp: new Date().toISOString(),
         resend: resendData,
       }),
