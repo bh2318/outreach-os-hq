@@ -254,7 +254,7 @@ export default function TestEmails() {
         </section>
 
         {/* Simulate reply */}
-        <section className="rounded-lg border border-border bg-card p-4 mb-6">
+        <section className="rounded-lg border border-border bg-card p-4 mb-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
             2. Simulate a reply (classified by Claude)
           </div>
@@ -280,6 +280,25 @@ export default function TestEmails() {
           <p className="text-xs text-muted-foreground mt-2">
             Simulated replies are queued against the most recent test email and processed by Claude.
           </p>
+        </section>
+
+        {/* Check Gmail inbox */}
+        <section className="rounded-lg border border-border bg-card p-4 mb-6">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
+            3. Check real Gmail inbox
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Runs automatically every 5 minutes.
+            </p>
+            <button
+              onClick={handleCheckInbox}
+              disabled={checkingInbox}
+              className="shrink-0 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+            >
+              {checkingInbox ? "Checking…" : "Check Inbox"}
+            </button>
+          </div>
         </section>
 
         {/* Live log */}
