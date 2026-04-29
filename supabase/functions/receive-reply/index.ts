@@ -217,8 +217,34 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
+    // Pull richer lead info for draft personalization (county etc.)
+    const { data: leadFull } = await supabase
+      .from("leads")
+      .select("id,business_name,owner_name,city,state,county,niche,rating,review_count")
+      .eq("id", lead.id)
+      .maybeSingle();
+    const fullCounty = (() => {
+      const c = (leadFull?.county || leadFull?.city || "").trim();
+      if (!c) return "";
+      return /county$/i.test(c) ? c : `${c} County`;
+    })();
+    const leadContext = [
+      `business_name: ${leadFull?.business_name ?? lead.business_name}`,
+      `owner_name: ${leadFull?.owner_name ?? ""}`,
+      `niche: ${leadFull?.niche ?? ""}`,
+      `city: ${leadFull?.city ?? ""}`,
+      `state: ${leadFull?.state ?? ""}`,
+      `county: ${fullCounty}`,
+      "",
+      `their_reply: ${body}`,
+      "",
+      "Write the reply email now.",
+    ].join("\n");
+
     // Step 3 — branch
     if (classification === "YES") {
+      const draft = await draftReplyWithClaude(ANTHROPIC, YES_DRAFT_PROMPT, leadContext);
+      const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("notifications").insert({
         lead_id: lead.id,
         type: "yes_reply",
@@ -242,13 +268,15 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
+        draft_response: draft || null,
+        draft_subject: draftSubject,
       });
       await supabase.from("leads").update({ status: "replied" }).eq("id", lead.id);
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied YES and notification created",
+        detail: "lead replied YES — draft pre-generated and notification created",
         outcome: "success",
       });
     } else if (classification === "NO") {
@@ -272,6 +300,8 @@ Deno.serve(async (req) => {
         outcome: "success",
       });
     } else {
+      const draft = await draftReplyWithClaude(ANTHROPIC, MAYBE_DRAFT_PROMPT, leadContext);
+      const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("replies").insert({
         lead_id: lead.id,
         from_email: from,
@@ -282,12 +312,14 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.7,
         actioned: false,
+        draft_response: draft || null,
+        draft_subject: draftSubject,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied with question routed to replies tab",
+        detail: "lead replied with question — draft pre-generated",
         outcome: "success",
       });
     }
