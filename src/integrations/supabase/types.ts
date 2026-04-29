@@ -472,6 +472,7 @@ export type Database = {
           min_site_score: number
           operator_city: string | null
           operator_name: string | null
+          outreach_active: boolean
           payment_instructions: string | null
           payment_terms_days: number
           reply_to_email: string | null
@@ -495,6 +496,7 @@ export type Database = {
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
+          outreach_active?: boolean
           payment_instructions?: string | null
           payment_terms_days?: number
           reply_to_email?: string | null
@@ -518,6 +520,7 @@ export type Database = {
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
+          outreach_active?: boolean
           payment_instructions?: string | null
           payment_terms_days?: number
           reply_to_email?: string | null

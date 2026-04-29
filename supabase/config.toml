@@ -2,3 +2,6 @@ project_id = "uyirdmipfazvtibcfatq"
 
 [functions.receive-reply]
 verify_jwt = false
+
+[functions.send-daily-outreach]
+verify_jwt = false

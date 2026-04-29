@@ -1,0 +1,1 @@
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS outreach_active boolean NOT NULL DEFAULT false;
