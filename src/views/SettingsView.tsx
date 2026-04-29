@@ -67,6 +67,38 @@ export function SettingsView() {
         <Field label="Logo upload"><button className="btn-ghost">Upload logo</button></Field>
       </Group>
 
+      <Group label="Outreach Scheduler">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-md border border-border bg-background/40">
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-medium text-foreground">Send daily outreach</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">250 emails per day, 7am to 7pm</div>
+            <div className="text-[11px] mt-1">
+              {s.outreach_active ? (
+                <span className="text-status-green-text">Scheduler active — next run today at 7am</span>
+              ) : (
+                <span className="text-faint">Scheduler paused</span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              const next = !s.outreach_active;
+              update("outreach_active", next);
+              const { error } = await supabase.from("settings").update({ outreach_active: next }).eq("id", 1);
+              if (error) {
+                update("outreach_active", !next);
+                return toast.error(error.message);
+              }
+              toast.success(next ? "Scheduler activated" : "Scheduler paused");
+            }}
+            className={`shrink-0 w-14 h-8 rounded-full border transition-colors relative ${s.outreach_active ? "bg-primary border-primary-fill-border" : "bg-background border-border-hover"}`}
+            aria-label="Toggle daily outreach scheduler"
+          >
+            <span className={`absolute top-0.5 w-7 h-7 rounded-full bg-foreground transition-all ${s.outreach_active ? "left-[26px]" : "left-0.5"}`} />
+          </button>
+        </div>
+      </Group>
+
       <Group label="Outreach">
         <Field label="Daily send limit"><input type="number" className="input-base w-full" value={s.daily_send_limit} onChange={e => update("daily_send_limit", Number(e.target.value))} /></Field>
         <Field label="Send window start"><input type="time" className="input-base w-full" value={s.send_window_start} onChange={e => update("send_window_start", e.target.value)} /></Field>
