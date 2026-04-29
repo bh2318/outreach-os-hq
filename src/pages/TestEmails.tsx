@@ -332,15 +332,24 @@ export default function TestEmails() {
           </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Runs automatically every 5 minutes.
+              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Manual trigger only.
             </p>
-            <button
-              onClick={handleCheckInbox}
-              disabled={checkingInbox}
-              className="shrink-0 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
-            >
-              {checkingInbox ? "Checking…" : "Check Inbox"}
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={handleTestWebhook}
+                disabled={testingWebhook}
+                className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+              >
+                {testingWebhook ? "Posting…" : "Test Webhook"}
+              </button>
+              <button
+                onClick={handleCheckInbox}
+                disabled={checkingInbox}
+                className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+              >
+                {checkingInbox ? "Checking…" : "Check Inbox"}
+              </button>
+            </div>
           </div>
         </section>
 
