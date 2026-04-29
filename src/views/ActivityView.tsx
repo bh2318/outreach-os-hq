@@ -7,8 +7,11 @@ import { toast } from "sonner";
 
 function eventColor(action: string, outcome: string) {
   if (outcome === "warning" || outcome === "failed" || outcome === "flagged") return "text-status-amber-text";
-  if (["replied", "mock_sent", "invoice_paid", "deal_updated"].includes(action)) return "text-status-green-text";
-  if (["scraped", "system"].includes(action)) return "text-status-blue-text";
+  if (action === "scraped") return "text-status-blue-text";
+  if (action === "emailed" || action === "email_sent") return "text-primary-fill-text";
+  if (action === "replied" || action === "reply_received" || (action ?? "").startsWith("reply_classified_")) return "text-status-green-text";
+  if (action === "mock_generated" || action === "mock_sent") return "text-status-amber-text";
+  if (action === "deal_updated" || action === "invoice_sent" || action === "invoice_paid") return "text-status-green-text";
   return "text-muted-foreground";
 }
 

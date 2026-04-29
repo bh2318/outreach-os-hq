@@ -97,6 +97,7 @@ export function ScraperBar() {
         <option value={50}>50 leads</option>
         <option value={100}>100 leads</option>
         <option value={200}>200 leads</option>
+        <option value={250}>250 leads</option>
       </select>
       <button
         className="btn-primary"

@@ -3,13 +3,23 @@ import { useTabBadges } from "@/hooks/useMetrics";
 import { Badge } from "./Badge";
 import type { StatusTone } from "@/lib/format";
 
-export type TabId = "dashboard" | "calls" | "mocks" | "replies" | "followups" | "pipeline" | "activity" | "settings";
+export type TabId =
+  | "dashboard"
+  | "leads"
+  | "calls"
+  | "mocks"
+  | "replies"
+  | "followups"
+  | "pipeline"
+  | "activity"
+  | "settings";
 
-const TABS: { id: TabId; label: string; badgeKey?: "calls" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
+const TABS: { id: TabId; label: string; badgeKey?: "leads" | "calls" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "leads", label: "Leads", badgeKey: "leads", tone: "blue" },
   { id: "calls", label: "Calls", badgeKey: "calls", tone: "red" },
   { id: "mocks", label: "Mock Requests", badgeKey: "mocks", tone: "amber" },
-  { id: "replies", label: "Replies", badgeKey: "replies", tone: "blue" },
+  { id: "replies", label: "Replies", badgeKey: "replies", tone: "green" },
   { id: "followups", label: "Follow-Ups", badgeKey: "followups", tone: "amber" },
   { id: "pipeline", label: "Pipeline" },
   { id: "activity", label: "Activity Log" },

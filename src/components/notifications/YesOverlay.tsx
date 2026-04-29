@@ -45,6 +45,25 @@ export function YesOverlay() {
   async function loadDraft(leadId: string, replyText: string) {
     setLoading(true);
     try {
+      // 1) First, try to find an existing replies row with a pre-generated draft.
+      //    receive-reply pre-drafts at classification time.
+      const intent = kind === "yes_reply" ? "interested" : "needs_response";
+      const { data: existing } = await supabase
+        .from("replies")
+        .select("draft_response, draft_subject")
+        .eq("lead_id", leadId)
+        .eq("intent", intent)
+        .order("received_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing?.draft_response) {
+        setDraft(existing.draft_response);
+        setSubject(existing.draft_subject ?? "");
+        setLoading(false);
+        return;
+      }
+
+      // 2) Otherwise, generate via edge function and persist.
       const fnName = kind === "yes_reply" ? "draft-yes-response" : "draft-maybe-response";
       const { data, error } = await supabase.functions.invoke(fnName, {
         body: { leadId, replyText },
@@ -53,6 +72,21 @@ export function YesOverlay() {
       if (data?.success) {
         setDraft(data.draft);
         setSubject(data.subject ?? "");
+        // Backfill onto the latest matching reply row so future opens are instant.
+        const { data: row } = await supabase
+          .from("replies")
+          .select("id")
+          .eq("lead_id", leadId)
+          .eq("intent", intent)
+          .order("received_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (row?.id) {
+          await supabase
+            .from("replies")
+            .update({ draft_response: data.draft, draft_subject: data.subject ?? null })
+            .eq("id", row.id);
+        }
       } else {
         toast.error(data?.error ?? "Failed to draft response");
       }
