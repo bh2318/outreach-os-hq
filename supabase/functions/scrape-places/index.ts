@@ -20,6 +20,25 @@ function pickComp(comps: AddrComp[] | undefined, type: string, short = false): s
   return short ? c.short_name : c.long_name;
 }
 
+// Get Google PageSpeed mobile performance score (0-100). Returns null on failure.
+async function getPageSpeedMobileScore(url: string, apiKey: string): Promise<number | null> {
+  try {
+    const psiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&category=performance&key=${apiKey}`;
+    const res = await fetch(psiUrl);
+    if (!res.ok) {
+      console.warn(`[scrape-places] PSI failed for ${url}: ${res.status}`);
+      return null;
+    }
+    const j = await res.json();
+    const score = j?.lighthouseResult?.categories?.performance?.score;
+    if (typeof score !== "number") return null;
+    return Math.round(score * 100);
+  } catch (e) {
+    console.warn(`[scrape-places] PSI error for ${url}:`, e);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
