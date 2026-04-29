@@ -5,6 +5,7 @@ import { DashboardView } from "@/views/DashboardView";
 import { CallsView } from "@/views/CallsView";
 import { MocksView } from "@/views/MocksView";
 import { RepliesView } from "@/views/RepliesView";
+import { FollowUpsView } from "@/views/FollowUpsView";
 import { PipelineView } from "@/views/PipelineView";
 import { ActivityView } from "@/views/ActivityView";
 import { SettingsView } from "@/views/SettingsView";
@@ -24,6 +25,7 @@ const Index = () => {
         {tab === "calls" && <CallsView />}
         {tab === "mocks" && <MocksView />}
         {tab === "replies" && <RepliesView />}
+        {tab === "followups" && <FollowUpsView />}
         {tab === "pipeline" && <PipelineView />}
         {tab === "activity" && <ActivityView />}
         {tab === "settings" && <SettingsView />}
