@@ -47,9 +47,20 @@ export default function TestEmails() {
     if (testingWebhook) return;
     setTestingWebhook(true);
     try {
+      const { data: latestLead, error: leadErr } = await supabase
+        .from("leads")
+        .select("email, business_name")
+        .not("email", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (leadErr) throw leadErr;
+      if (!latestLead?.email) {
+        throw new Error("No lead with an email found in the leads table");
+      }
       const payload = {
-        from: "b.hemminger18@gmail.com",
-        subject: "Re: Quick question for Mikes Plumbing",
+        from: latestLead.email,
+        subject: `Re: Quick question for ${latestLead.business_name ?? "your business"}`,
         body: "yeah this sounds interesting tell me more",
       };
       pushLog({
