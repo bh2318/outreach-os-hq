@@ -13,6 +13,10 @@ const FAKE_BUSINESSES = [
 function generateMockLeads(niche: string, location: string, count: number) {
   const [city, stateRaw] = location.split(",").map(s => s.trim());
   const state = stateRaw || "";
+  const cityName = city || "Unknown";
+  // Generic county fallback — uses "<City> County" everywhere when Places lookup
+  // is unavailable. Works for any city in any state with no hardcoded lookups.
+  const county = `${cityName} County`;
   const out: any[] = [];
   for (let i = 0; i < count; i++) {
     const tpl = FAKE_BUSINESSES[Math.floor(Math.random() * FAKE_BUSINESSES.length)];
@@ -24,8 +28,10 @@ function generateMockLeads(niche: string, location: string, count: number) {
       owner_name: null,
       email: `contact${i}@${business.toLowerCase().replace(/[^a-z]/g, "")}.com`,
       phone: `555-${String(Math.floor(Math.random() * 900) + 100)}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
-      city: city || "Unknown",
+      city: cityName,
       state,
+      county,
+      zip: null,
       niche,
       website_url: score ? `http://${business.toLowerCase().replace(/[^a-z]/g, "")}.com` : null,
       site_score: score,
