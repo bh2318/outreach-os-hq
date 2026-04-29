@@ -37,9 +37,34 @@ export default function TestEmails() {
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
+  const [checkingInbox, setCheckingInbox] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
+
+  async function handleCheckInbox() {
+    if (checkingInbox) return;
+    setCheckingInbox(true);
+    try {
+      pushLog({ kind: "check", title: "Polling Gmail inbox…", detail: "Calling poll-gmail-inbox" });
+      const { data, error } = await supabase.functions.invoke("poll-gmail-inbox", { body: {} });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error ?? "Inbox poll failed");
+      pushLog({
+        kind: "check",
+        title: `Inbox checked — ${data.processed ?? 0} processed`,
+        detail: `YES ${data.yes ?? 0} · NO ${data.no ?? 0} · MAYBE ${data.maybe ?? 0} · unmatched ${data.unmatched ?? 0}`,
+        data,
+      });
+      toast.success(`Inbox checked — ${data.processed ?? 0} replies processed`);
+    } catch (e) {
+      const message = getErrorMessage(e, "Inbox poll failed");
+      pushLog({ kind: "error", title: "Inbox poll failed", detail: message });
+      toast.error(message);
+    } finally {
+      setCheckingInbox(false);
+    }
+  }
 
   function pushLog(entry: Omit<LogEntry, "id" | "timestamp">) {
     setLog((prev) => [
@@ -229,7 +254,7 @@ export default function TestEmails() {
         </section>
 
         {/* Simulate reply */}
-        <section className="rounded-lg border border-border bg-card p-4 mb-6">
+        <section className="rounded-lg border border-border bg-card p-4 mb-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
             2. Simulate a reply (classified by Claude)
           </div>
@@ -255,6 +280,25 @@ export default function TestEmails() {
           <p className="text-xs text-muted-foreground mt-2">
             Simulated replies are queued against the most recent test email and processed by Claude.
           </p>
+        </section>
+
+        {/* Check Gmail inbox */}
+        <section className="rounded-lg border border-border bg-card p-4 mb-6">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3">
+            3. Check real Gmail inbox
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Runs automatically every 5 minutes.
+            </p>
+            <button
+              onClick={handleCheckInbox}
+              disabled={checkingInbox}
+              className="shrink-0 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+            >
+              {checkingInbox ? "Checking…" : "Check Inbox"}
+            </button>
+          </div>
         </section>
 
         {/* Live log */}
