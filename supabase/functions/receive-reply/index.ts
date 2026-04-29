@@ -28,20 +28,47 @@ function extractEmailAddress(value: string | undefined | null): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : null;
 }
 
+function stripHtml(s: string): string {
+  return s
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
 function parseRawEmail(raw: string): { from: string | null; subject: string | null; body: string } {
-  // Split headers from body on first blank line
-  const idx = raw.search(/\r?\n\r?\n/);
-  const headerBlock = idx === -1 ? raw : raw.slice(0, idx);
-  const body = idx === -1 ? "" : raw.slice(idx).replace(/^\r?\n\r?\n/, "");
+  // Normalise line endings, then split headers from body on first blank line.
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const idx = normalized.indexOf("\n\n");
+  const headerBlock = idx === -1 ? normalized : normalized.slice(0, idx);
+  let body = idx === -1 ? "" : normalized.slice(idx + 2);
+
+  // Unfold continuation header lines (lines starting with whitespace continue the previous header).
+  const headerLines: string[] = [];
+  for (const line of headerBlock.split("\n")) {
+    if (/^[ \t]/.test(line) && headerLines.length > 0) {
+      headerLines[headerLines.length - 1] += " " + line.trim();
+    } else {
+      headerLines.push(line);
+    }
+  }
   const headers: Record<string, string> = {};
-  for (const line of headerBlock.split(/\r?\n/)) {
+  for (const line of headerLines) {
     const m = line.match(/^([A-Za-z-]+):\s*(.*)$/);
     if (m) headers[m[1].toLowerCase()] = m[2];
   }
+
+  body = stripHtml(body);
   return {
     from: extractEmailAddress(headers["from"]),
     subject: headers["subject"] ?? null,
-    body: body.trim() || raw,
+    body: body.trim() || stripHtml(raw),
   };
 }
 
@@ -114,14 +141,39 @@ Deno.serve(async (req) => {
     }
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // Step 1 — match lead by sender email
-    const { data: lead, error: leadErr } = await supabase
-      .from("leads")
-      .select("id, business_name, email")
-      .ilike("email", from)
-      .maybeSingle();
+    // Step 1 — match lead by sender email.
+    // Special case: when the reply comes from our own outreach inbox
+    // (b.h.weboutreach@gmail.com — used for test sends), match the most
+    // recently contacted lead via outreach_emails instead of the email column.
+    const TEST_INBOX = "b.h.weboutreach@gmail.com";
+    let lead: { id: string; business_name: string; email: string | null } | null = null;
 
-    if (leadErr) console.error("[receive-reply] lead lookup error", leadErr);
+    if (from === TEST_INBOX) {
+      const { data: lastSent } = await supabase
+        .from("outreach_emails")
+        .select("lead_id, sent_at")
+        .not("lead_id", "is", null)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastSent?.lead_id) {
+        const { data: l } = await supabase
+          .from("leads")
+          .select("id, business_name, email")
+          .eq("id", lastSent.lead_id)
+          .maybeSingle();
+        lead = l ?? null;
+      }
+    } else {
+      const { data: l, error: leadErr } = await supabase
+        .from("leads")
+        .select("id, business_name, email")
+        .ilike("email", from)
+        .maybeSingle();
+      if (leadErr) console.error("[receive-reply] lead lookup error", leadErr);
+      lead = l ?? null;
+    }
+
     if (!lead) {
       console.warn(`[receive-reply] no matching lead for sender=${from}`);
       return ok({ status: "success", message: "no matching lead found", sender: from });
