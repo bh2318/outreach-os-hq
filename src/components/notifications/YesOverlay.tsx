@@ -16,6 +16,15 @@ type Lead = {
   website_url: string | null;
   site_score: number | null;
   site_audit_json: any;
+  status: string | null;
+};
+
+type Kind = "yes_reply" | "maybe_reply" | "no_reply";
+
+const KIND_META: Record<Kind, { label: string; accent: string; rightLabel: string }> = {
+  yes_reply: { label: "YES reply", accent: "#7c5cff", rightLabel: "Drafted YES response" },
+  maybe_reply: { label: "MAYBE reply", accent: "#f5b14a", rightLabel: "Drafted response" },
+  no_reply: { label: "NO reply", accent: "#9aa0a6", rightLabel: "Lead archived" },
 };
 
 export function YesOverlay() {
@@ -29,12 +38,16 @@ export function YesOverlay() {
   const [sending, setSending] = useState(false);
 
   const open = !!overlayFor;
+  const kind: Kind = ((overlayFor as any)?.type ?? (overlayFor as any)?.kind ?? "yes_reply") as Kind;
+  const meta = KIND_META[kind] ?? KIND_META.yes_reply;
+  const showDraft = kind !== "no_reply";
 
-  async function loadDraft(leadId: string) {
+  async function loadDraft(leadId: string, replyText: string) {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("draft-yes-response", {
-        body: { leadId },
+      const fnName = kind === "yes_reply" ? "draft-yes-response" : "draft-maybe-response";
+      const { data, error } = await supabase.functions.invoke(fnName, {
+        body: { leadId, replyText },
       });
       if (error) throw error;
       if (data?.success) {
@@ -72,8 +85,11 @@ export function YesOverlay() {
           .single();
         if (data?.preview_url) setMockUrl(data.preview_url);
       }
-      if (overlayFor.lead_id) loadDraft(overlayFor.lead_id);
+      if (overlayFor.lead_id && showDraft) {
+        loadDraft(overlayFor.lead_id, overlayFor.reply_full ?? overlayFor.reply_body ?? "");
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlayFor]);
 
   if (!open) return null;
@@ -85,24 +101,39 @@ export function YesOverlay() {
     if (!overlayFor?.lead_id) return;
     setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke("send-yes-response", {
-        body: {
-          leadId: overlayFor.lead_id,
-          notificationId: overlayFor.id,
-          mockSiteId: overlayFor.mock_site_id,
-          draft,
-          subject,
-        },
-      });
+      const fnName = kind === "yes_reply" ? "send-yes-response" : "send-maybe-response";
+      const body: any = {
+        leadId: overlayFor.lead_id,
+        notificationId: overlayFor.id,
+        draft,
+        subject,
+      };
+      if (kind === "yes_reply") body.mockSiteId = overlayFor.mock_site_id;
+      if (kind === "maybe_reply") body.replyId = null;
+      const { data, error } = await supabase.functions.invoke(fnName, { body });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? "Send failed");
-      toast.success("YES response sent — mock delivered");
+      await supabase
+        .from("notifications")
+        .update({ status: "acted", acted_at: new Date().toISOString(), read: true, acted_on: true })
+        .eq("id", overlayFor.id);
+      toast.success(kind === "yes_reply" ? "YES response sent — mock delivered" : "Response sent");
       closeOverlay();
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to send");
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleAcknowledgeNo() {
+    if (!overlayFor) return;
+    await supabase
+      .from("notifications")
+      .update({ status: "acted", acted_at: new Date().toISOString(), read: true, acted_on: true })
+      .eq("id", overlayFor.id);
+    toast.success("Lead archived");
+    closeOverlay();
   }
 
   return (
@@ -116,14 +147,11 @@ export function YesOverlay() {
           <div className="flex items-center justify-between mb-6">
             <span
               className="text-[11px] uppercase tracking-wider px-2 py-1 rounded"
-              style={{ backgroundColor: "#1a1830", color: "#a89eff", border: "1px solid #3C3489" }}
+              style={{ backgroundColor: "#1a1830", color: meta.accent, border: `1px solid ${meta.accent}` }}
             >
-              Lead details
+              {meta.label}
             </span>
-            <button
-              onClick={closeOverlay}
-              className="text-foreground/60 hover:text-foreground text-sm"
-            >
+            <button onClick={closeOverlay} className="text-foreground/60 hover:text-foreground text-sm">
               ✕ Close
             </button>
           </div>
@@ -163,7 +191,7 @@ export function YesOverlay() {
                 target="_blank"
                 rel="noreferrer"
                 className="text-sm underline break-all"
-                style={{ color: "#a89eff" }}
+                style={{ color: meta.accent }}
               >
                 {mockUrl}
               </a>
@@ -171,69 +199,98 @@ export function YesOverlay() {
           )}
         </div>
 
-        {/* RIGHT: drafted response */}
+        {/* RIGHT */}
         <div className="p-8 overflow-y-auto flex flex-col" style={{ backgroundColor: "#0e0c1c" }}>
           <div className="flex items-center justify-between mb-6">
             <span
               className="text-[11px] uppercase tracking-wider px-2 py-1 rounded"
-              style={{ backgroundColor: "#1a1830", color: "#a89eff", border: "1px solid #3C3489" }}
+              style={{ backgroundColor: "#1a1830", color: meta.accent, border: `1px solid ${meta.accent}` }}
             >
-              Drafted YES response
+              {meta.rightLabel}
             </span>
             <span className="text-xs opacity-60" style={{ color: "#e2e0da" }}>
-              Auto-drafted by Claude
+              {showDraft ? "Auto-drafted by Claude" : "No reply needed"}
             </span>
           </div>
 
-          <div className="mb-3">
-            <label className="text-[11px] uppercase tracking-wider opacity-60 mb-1 block">Subject</label>
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              disabled={!editing}
-              className="w-full rounded-md px-3 py-2 text-sm disabled:opacity-90"
-              style={{ backgroundColor: "#1a1830", border: "1px solid #2a2545", color: "#e2e0da" }}
-            />
-          </div>
+          {kind === "no_reply" ? (
+            <div className="flex-1 flex flex-col">
+              <div
+                className="rounded-lg p-6 text-sm"
+                style={{ backgroundColor: "#1a1830", border: "1px solid #2a2545", color: "#e2e0da" }}
+              >
+                <p className="mb-3 font-medium">This lead said no.</p>
+                <p className="opacity-80">
+                  The lead has been archived automatically. No further outreach will be sent.
+                  Acknowledge to dismiss.
+                </p>
+              </div>
+              <div className="mt-auto flex gap-2 pt-6">
+                <button
+                  onClick={handleAcknowledgeNo}
+                  className="ml-auto px-5 py-2 rounded-md text-sm font-semibold"
+                  style={{ backgroundColor: meta.accent, color: "#0e0c1c" }}
+                >
+                  Acknowledge
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3">
+                <label className="text-[11px] uppercase tracking-wider opacity-60 mb-1 block">Subject</label>
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  disabled={!editing}
+                  className="w-full rounded-md px-3 py-2 text-sm disabled:opacity-90"
+                  style={{ backgroundColor: "#1a1830", border: "1px solid #2a2545", color: "#e2e0da" }}
+                />
+              </div>
 
-          <div className="flex-1 mb-4">
-            <label className="text-[11px] uppercase tracking-wider opacity-60 mb-1 block">Body</label>
-            <textarea
-              value={loading ? "Drafting…" : draft}
-              onChange={(e) => setDraft(e.target.value)}
-              disabled={!editing || loading}
-              rows={16}
-              className="w-full h-full rounded-md px-3 py-3 text-sm font-sans resize-none"
-              style={{ backgroundColor: "#1a1830", border: "1px solid #2a2545", color: "#e2e0da", minHeight: "320px" }}
-            />
-          </div>
+              <div className="flex-1 mb-4">
+                <label className="text-[11px] uppercase tracking-wider opacity-60 mb-1 block">Body</label>
+                <textarea
+                  value={loading ? "Drafting…" : draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  disabled={!editing || loading}
+                  rows={16}
+                  className="w-full h-full rounded-md px-3 py-3 text-sm font-sans resize-none"
+                  style={{ backgroundColor: "#1a1830", border: "1px solid #2a2545", color: "#e2e0da", minHeight: "320px" }}
+                />
+              </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => overlayFor.lead_id && loadDraft(overlayFor.lead_id)}
-              disabled={loading || sending}
-              className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: "transparent", border: "1px solid #3C3489", color: "#e2e0da" }}
-            >
-              {loading ? "Regenerating…" : "Regenerate"}
-            </button>
-            <button
-              onClick={() => setEditing((v) => !v)}
-              disabled={loading || sending}
-              className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: "transparent", border: "1px solid #3C3489", color: "#e2e0da" }}
-            >
-              {editing ? "Lock" : "Edit"}
-            </button>
-            <button
-              onClick={handleSend}
-              disabled={loading || sending || !draft}
-              className="ml-auto px-5 py-2 rounded-md text-sm font-semibold disabled:opacity-50"
-              style={{ backgroundColor: "#3C3489", color: "#e2e0da" }}
-            >
-              {sending ? "Sending…" : "Confirm and Send"}
-            </button>
-          </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    overlayFor.lead_id &&
+                    loadDraft(overlayFor.lead_id, overlayFor.reply_full ?? overlayFor.reply_body ?? "")
+                  }
+                  disabled={loading || sending}
+                  className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                  style={{ backgroundColor: "transparent", border: "1px solid #3C3489", color: "#e2e0da" }}
+                >
+                  {loading ? "Regenerating…" : "Regenerate"}
+                </button>
+                <button
+                  onClick={() => setEditing((v) => !v)}
+                  disabled={loading || sending}
+                  className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                  style={{ backgroundColor: "transparent", border: "1px solid #3C3489", color: "#e2e0da" }}
+                >
+                  {editing ? "Lock" : "Edit"}
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={loading || sending || !draft}
+                  className="ml-auto px-5 py-2 rounded-md text-sm font-semibold disabled:opacity-50"
+                  style={{ backgroundColor: meta.accent, color: "#0e0c1c" }}
+                >
+                  {sending ? "Sending…" : "Confirm and Send"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
