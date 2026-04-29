@@ -37,7 +37,6 @@ export default function TestEmails() {
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
-  const [checking, setChecking] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
@@ -148,8 +147,8 @@ export default function TestEmails() {
               state: leadRow?.state ?? null,
               county: leadRow?.county ?? null,
               phone: leadRow?.phone ?? null,
-              reviewCount: leadRow?.site_audit_json?.review_count ?? null,
-              rating: leadRow?.site_audit_json?.rating ?? null,
+              reviewCount: (leadRow?.site_audit_json as { review_count?: number } | null)?.review_count ?? null,
+              rating: (leadRow?.site_audit_json as { rating?: number } | null)?.rating ?? null,
             },
           },
         );
@@ -251,13 +250,6 @@ export default function TestEmails() {
               className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
             >
               {classifying ? "Classifying…" : "Simulate Reply"}
-            </button>
-            <button
-              onClick={handleCheckReplies}
-              disabled={checking}
-              className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
-            >
-              {checking ? "Checking…" : "Check Replies"}
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
