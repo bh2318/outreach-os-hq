@@ -1,1 +1,4 @@
 project_id = "uyirdmipfazvtibcfatq"
+
+[functions.receive-reply]
+verify_jwt = false

@@ -1,0 +1,222 @@
+// receive-reply
+// Public webhook endpoint for incoming Gmail-forwarded replies.
+// No auth header check — Gmail forwarders cannot send auth tokens.
+// Always responds 200 to prevent Gmail retry loops.
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const CLASSIFY_PROMPT =
+  "Classify this email reply as YES NO or MAYBE. YES means the person is interested or wants to see more. NO means not interested or wants to stop. MAYBE means they asked a question or are unsure. Reply with one word only.";
+
+function ok(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function extractEmailAddress(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const m = value.match(/<([^>]+)>/);
+  const candidate = (m ? m[1] : value).trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : null;
+}
+
+function parseRawEmail(raw: string): { from: string | null; subject: string | null; body: string } {
+  // Split headers from body on first blank line
+  const idx = raw.search(/\r?\n\r?\n/);
+  const headerBlock = idx === -1 ? raw : raw.slice(0, idx);
+  const body = idx === -1 ? "" : raw.slice(idx).replace(/^\r?\n\r?\n/, "");
+  const headers: Record<string, string> = {};
+  for (const line of headerBlock.split(/\r?\n/)) {
+    const m = line.match(/^([A-Za-z-]+):\s*(.*)$/);
+    if (m) headers[m[1].toLowerCase()] = m[2];
+  }
+  return {
+    from: extractEmailAddress(headers["from"]),
+    subject: headers["subject"] ?? null,
+    body: body.trim() || raw,
+  };
+}
+
+async function extractFromRequest(req: Request): Promise<{ from: string | null; subject: string | null; body: string }> {
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
+  const text = await req.text();
+  if (ct.includes("application/json")) {
+    try {
+      const j = JSON.parse(text);
+      const from =
+        extractEmailAddress(j.from) ||
+        extractEmailAddress(j.sender) ||
+        extractEmailAddress(j.from_email) ||
+        extractEmailAddress(j.email) ||
+        null;
+      const subject = j.subject ?? j.Subject ?? null;
+      const body =
+        j.body ?? j.text ?? j.body_text ?? j.message ?? j.content ?? j["body-plain"] ?? "";
+      if (from || subject || body) return { from, subject, body: String(body) };
+    } catch {
+      // fall through to raw parsing
+    }
+  }
+  return parseRawEmail(text);
+}
+
+async function classifyWithClaude(apiKey: string, replyText: string): Promise<"YES" | "NO" | "MAYBE"> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 10,
+      system: CLASSIFY_PROMPT,
+      messages: [{ role: "user", content: replyText }],
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Claude classify failed: ${res.status} ${t}`);
+  }
+  const d = await res.json();
+  const raw: string = (d?.content?.[0]?.text || "").trim().toUpperCase();
+  return raw.includes("YES") ? "YES" : raw.includes("NO") ? "NO" : "MAYBE";
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return ok({ status: "ignored", reason: "method not allowed" });
+
+  try {
+    const { from, subject, body } = await extractFromRequest(req);
+    console.log(`[receive-reply] incoming from="${from}" subject="${subject}" bodyLen=${body?.length ?? 0}`);
+
+    if (!from) {
+      console.warn("[receive-reply] could not extract sender address");
+      return ok({ status: "success", message: "no sender extracted" });
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANTHROPIC = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC) {
+      console.error("[receive-reply] ANTHROPIC_API_KEY not configured");
+      return ok({ status: "success", message: "anthropic key missing" });
+    }
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
+    // Step 1 — match lead by sender email
+    const { data: lead, error: leadErr } = await supabase
+      .from("leads")
+      .select("id, business_name, email")
+      .ilike("email", from)
+      .maybeSingle();
+
+    if (leadErr) console.error("[receive-reply] lead lookup error", leadErr);
+    if (!lead) {
+      console.warn(`[receive-reply] no matching lead for sender=${from}`);
+      return ok({ status: "success", message: "no matching lead found", sender: from });
+    }
+
+    // Step 2 — classify
+    let classification: "YES" | "NO" | "MAYBE";
+    try {
+      classification = await classifyWithClaude(ANTHROPIC, body);
+    } catch (e) {
+      console.error("[receive-reply] classification failed", e);
+      return ok({ status: "success", message: "classification failed", error: String(e) });
+    }
+    console.log(`[receive-reply] classified=${classification} lead=${lead.business_name}`);
+
+    const now = new Date().toISOString();
+
+    // Step 3 — branch
+    if (classification === "YES") {
+      await supabase.from("notifications").insert({
+        lead_id: lead.id,
+        type: "yes_reply",
+        kind: "yes_reply",
+        business_name: lead.business_name,
+        reply_body: body,
+        reply_full: body,
+        reply_preview: body.slice(0, 200),
+        read: false,
+        acted_on: false,
+        status: "unread",
+        created_at: now,
+      });
+      await supabase.from("replies").insert({
+        lead_id: lead.id,
+        from_email: from,
+        subject: subject ?? "",
+        body,
+        received_at: now,
+        intent: "interested",
+        classified_at: now,
+        confidence: 0.95,
+        actioned: false,
+      });
+      await supabase.from("leads").update({ status: "replied" }).eq("id", lead.id);
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "lead replied YES and notification created",
+        outcome: "success",
+      });
+    } else if (classification === "NO") {
+      await supabase.from("leads").update({ status: "archived" }).eq("id", lead.id);
+      await supabase.from("replies").insert({
+        lead_id: lead.id,
+        from_email: from,
+        subject: subject ?? "",
+        body,
+        received_at: now,
+        intent: "not_interested",
+        classified_at: now,
+        confidence: 0.95,
+        actioned: true,
+      });
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "lead replied not interested sequence halted",
+        outcome: "success",
+      });
+    } else {
+      await supabase.from("replies").insert({
+        lead_id: lead.id,
+        from_email: from,
+        subject: subject ?? "",
+        body,
+        received_at: now,
+        intent: "needs_response",
+        classified_at: now,
+        confidence: 0.7,
+        actioned: false,
+      });
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "lead replied with question routed to replies tab",
+        outcome: "success",
+      });
+    }
+
+    return ok({ status: "success", classification, lead_id: lead.id, business_name: lead.business_name });
+  } catch (e) {
+    console.error("[receive-reply] fatal", e);
+    return ok({ status: "success", message: "handled with error", error: String(e) });
+  }
+});

@@ -38,9 +38,52 @@ export default function TestEmails() {
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
   const [checkingInbox, setCheckingInbox] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
+
+  async function handleTestWebhook() {
+    if (testingWebhook) return;
+    setTestingWebhook(true);
+    try {
+      const payload = {
+        from: "b.hemminger18@gmail.com",
+        subject: "Re: Quick question for Mikes Plumbing",
+        body: "yeah this sounds interesting tell me more",
+      };
+      pushLog({
+        kind: "check",
+        title: "Posting to receive-reply webhook…",
+        detail: `from ${payload.from}`,
+        data: { body: payload.body },
+      });
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/receive-reply`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      pushLog({
+        kind: data?.classification === "YES" ? "classify" : "check",
+        title: `Webhook response ${res.status}`,
+        detail: JSON.stringify(data),
+        data,
+      });
+      if (res.ok && data?.status === "success") {
+        toast.success(`Webhook OK — ${data.classification ?? data.message ?? "processed"}`);
+      } else {
+        toast.error(`Webhook failed: ${res.status}`);
+      }
+    } catch (e) {
+      const message = getErrorMessage(e, "Webhook test failed");
+      pushLog({ kind: "error", title: "Webhook test failed", detail: message });
+      toast.error(message);
+    } finally {
+      setTestingWebhook(false);
+    }
+  }
 
   async function handleCheckInbox() {
     if (checkingInbox) return;
@@ -289,15 +332,24 @@ export default function TestEmails() {
           </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Runs automatically every 5 minutes.
+              Polls b.h.weboutreach@gmail.com via IMAP, classifies unread replies with Claude, and dispatches notifications. Manual trigger only.
             </p>
-            <button
-              onClick={handleCheckInbox}
-              disabled={checkingInbox}
-              className="shrink-0 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
-            >
-              {checkingInbox ? "Checking…" : "Check Inbox"}
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={handleTestWebhook}
+                disabled={testingWebhook}
+                className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+              >
+                {testingWebhook ? "Posting…" : "Test Webhook"}
+              </button>
+              <button
+                onClick={handleCheckInbox}
+                disabled={checkingInbox}
+                className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
+              >
+                {checkingInbox ? "Checking…" : "Check Inbox"}
+              </button>
+            </div>
           </div>
         </section>
 
