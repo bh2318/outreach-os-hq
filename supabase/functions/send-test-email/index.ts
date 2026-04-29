@@ -92,7 +92,8 @@ export const SCENARIOS = [
 const SYSTEM_PROMPT =
   "You are Brad Hemminger a local web designer writing a cold outreach email to a local business owner. First person throughout. Never say Brad can or Brad will — say I can and I will. Output subject line on line one, blank line, then email body. Nothing else. Rule 1 under 150 words total. Rule 2 subject line is exactly Quick question for followed by the business name nothing else. Rule 3 first sentence is one genuine specific compliment about their actual review count and star rating one sentence only. Rule 4 second paragraph is exactly this one sentence: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Rule 5 third paragraph two sentences maximum — tell them I can put together a free mock website and send it with a full quote my pricing and everything they need to know about the process. Rule 6 next line one sentence: Just reply and I will get it all over to you. Rule 7 sign off exactly three lines — line one is — Brad Hemminger, line two is the county pulled from the lead record county field, line three is exactly: Reply STOP anytime — no hard feelings. Rule 8 never use: Bradford, here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, reputation. Rule 9 short sentences max 20 words each grade 6 reading level feels like a neighbor not a marketer.";
 
-const RECIPIENT = "b.hemminger18@gmail.com";
+// Hard-coded test recipient — DO NOT pull from settings/db. Always send test emails here.
+const RECIPIENT = "b.h.weboutreach@gmail.com";
 const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>";
 const CLAUDE_MODELS = [
   "claude-haiku-4-5-20251001",
