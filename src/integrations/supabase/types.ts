@@ -206,6 +206,7 @@ export type Database = {
           state: string | null
           status: string
           website_url: string | null
+          zip: string | null
         }
         Insert: {
           address?: string | null
@@ -227,6 +228,7 @@ export type Database = {
           state?: string | null
           status?: string
           website_url?: string | null
+          zip?: string | null
         }
         Update: {
           address?: string | null
@@ -248,6 +250,7 @@ export type Database = {
           state?: string | null
           status?: string
           website_url?: string | null
+          zip?: string | null
         }
         Relationships: []
       }
