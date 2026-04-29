@@ -17,7 +17,6 @@ type Lead = {
   niche: string | null;
   city: string | null;
   state: string | null;
-  county: string | null;
   email: string | null;
   phone: string | null;
   website_url: string | null;
@@ -28,10 +27,11 @@ type Lead = {
   created_at: string;
 };
 
-function priorityScore(l: Lead): number {
-  // No website wins. Otherwise lower site_score wins.
-  if (!l.website_url || l.site_score == null) return 100;
-  return Math.max(0, 100 - l.site_score);
+function statusRank(l: Lead): number {
+  if (l.archived || l.status === "archived") return 3;
+  if (l.status === "new" && (l.site_score === null || !l.website_url || l.site_score >= 100)) return 0;
+  if (l.status === "new") return 1;
+  return 2; // contacted and other
 }
 
 function siteBadge(l: Lead): { tone: StatusTone; label: string } {
@@ -42,38 +42,33 @@ function siteBadge(l: Lead): { tone: StatusTone; label: string } {
   return { tone: "gray", label: `Score ${s}` };
 }
 
-function useLeadsQueue() {
+function statusBadge(l: Lead): { tone: StatusTone; label: string } {
+  if (l.archived || l.status === "archived") return { tone: "gray", label: "Archived" };
+  if (l.status === "new") return { tone: "blue", label: "New" };
+  if (l.status === "contacted") return { tone: "purple", label: "Contacted" };
+  if (l.status === "mock_sent") return { tone: "amber", label: "Mock sent" };
+  return { tone: "gray", label: l.status };
+}
+
+function useAllLeads() {
   return useQuery({
-    queryKey: ["leads-queue"],
+    queryKey: ["leads-all"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leads")
         .select("*")
-        .eq("status", "new")
-        .eq("outreach_count", 0)
-        .eq("archived", false)
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(1000);
       if (error) throw error;
       return (data ?? []) as Lead[];
     },
-    refetchInterval: 15000,
+    refetchInterval: 30000,
   });
 }
 
-type FilterId = "all" | "no_site" | "below_30" | "30_55";
-
-const FILTERS: { id: FilterId; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "no_site", label: "No website" },
-  { id: "below_30", label: "Score below 30" },
-  { id: "30_55", label: "Score 30 to 55" },
-];
-
 export function LeadsView() {
-  const { data, isLoading } = useLeadsQueue();
+  const { data, isLoading } = useAllLeads();
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<FilterId>("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -81,37 +76,22 @@ export function LeadsView() {
     const term = search.trim().toLowerCase();
     return (data ?? [])
       .filter((l) => {
-        if (filter === "no_site") return !l.website_url || l.site_score == null;
-        if (filter === "below_30") return l.site_score != null && l.site_score < 30;
-        if (filter === "30_55") return l.site_score != null && l.site_score >= 30 && l.site_score <= 55;
-        return true;
-      })
-      .filter((l) => {
         if (!term) return true;
         return (
           l.business_name?.toLowerCase().includes(term) ||
-          l.city?.toLowerCase().includes(term)
+          l.city?.toLowerCase().includes(term) ||
+          l.niche?.toLowerCase().includes(term)
         );
       })
-      .sort((a, b) => priorityScore(b) - priorityScore(a));
-  }, [data, filter, search]);
-
-  async function sendOutreach(lead: Lead) {
-    setBusyId(lead.id);
-    try {
-      const { data: res, error } = await supabase.functions.invoke("send-outreach-to-lead", {
-        body: { leadId: lead.id },
+      .sort((a, b) => {
+        const ra = statusRank(a);
+        const rb = statusRank(b);
+        if (ra !== rb) return ra - rb;
+        // Within new (rank 1): higher site_score first
+        if (ra === 1) return (b.site_score ?? 0) - (a.site_score ?? 0);
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-      if (error) throw error;
-      if (!res?.success) throw new Error(res?.error ?? "Send failed");
-      toast.success(`Outreach sent to ${lead.business_name}`);
-      qc.invalidateQueries();
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to send outreach");
-    } finally {
-      setBusyId(null);
-    }
-  }
+  }, [data, search]);
 
   async function archive(lead: Lead) {
     setBusyId(lead.id);
@@ -137,67 +117,60 @@ export function LeadsView() {
     }
   }
 
-  const total = data?.length ?? 0;
+  const queueCount = (data ?? []).filter((l) => !l.archived && l.status === "new").length;
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
-        <SectionLabel>Lead queue</SectionLabel>
-        <span className="text-[11px] text-muted-foreground font-mono">{total} leads</span>
+        <SectionLabel>All leads</SectionLabel>
+        <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={cn(
-              "text-[10px] px-2.5 py-1 rounded-full border transition-colors",
-              filter === f.id
-                ? "bg-primary-fill border-primary-fill-border text-primary-fill-text"
-                : "border-border text-muted-foreground hover:bg-border"
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
         <input
           className="input-base ml-auto"
-          style={{ minWidth: 220 }}
-          placeholder="Search business name or city…"
+          style={{ minWidth: 240 }}
+          placeholder="Search business name, city, or niche…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
       {isLoading ? null : !filtered.length ? (
-        <EmptyState>No leads match your filter.</EmptyState>
+        <EmptyState>No leads in the database yet.</EmptyState>
       ) : (
         <div className="space-y-2">
           {filtered.map((lead) => {
             const sb = siteBadge(lead);
+            const stat = statusBadge(lead);
+            const isArchived = lead.archived || lead.status === "archived";
             return (
               <PriorityCard
                 key={lead.id}
-                tone="blue"
-                title={<span className="text-foreground">{lead.business_name}</span>}
+                tone={isArchived ? "gray" : lead.status === "new" ? "blue" : "purple"}
+                title={
+                  <span className={cn("text-foreground", isArchived && "text-muted-foreground")}>
+                    {lead.business_name}
+                  </span>
+                }
                 subtitle={`${lead.niche ?? "—"} · ${lead.city ?? "—"}${lead.state ? `, ${lead.state}` : ""}`}
                 chips={
                   <>
+                    <Badge tone={stat.tone}>{stat.label}</Badge>
                     <Badge tone={sb.tone}>{sb.label}</Badge>
                     {lead.phone && <Chip>{lead.phone}</Chip>}
-                    <Chip>Scraped {fmtRelative(lead.created_at)}</Chip>
+                    {lead.website_url && (
+                      <Chip>
+                        <a href={lead.website_url} target="_blank" rel="noreferrer" className="hover:text-foreground truncate max-w-[180px]">
+                          {lead.website_url.replace(/^https?:\/\//, "").slice(0, 30)}
+                        </a>
+                      </Chip>
+                    )}
+                    <Chip>Added {fmtRelative(lead.created_at)}</Chip>
                   </>
                 }
                 actions={
-                  <>
-                    <button
-                      className="btn-primary"
-                      disabled={busyId === lead.id}
-                      onClick={() => sendOutreach(lead)}
-                    >
-                      {busyId === lead.id ? "Sending…" : "Send outreach"}
-                    </button>
+                  isArchived ? null : (
                     <button
                       className="btn-ghost"
                       disabled={busyId === lead.id}
@@ -205,7 +178,7 @@ export function LeadsView() {
                     >
                       Archive
                     </button>
-                  </>
+                  )
                 }
               />
             );
