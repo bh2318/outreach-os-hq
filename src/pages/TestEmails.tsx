@@ -37,7 +37,6 @@ export default function TestEmails() {
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
-  const [checking, setChecking] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
@@ -111,49 +110,75 @@ export default function TestEmails() {
         detail: `"${replyText.slice(0, 80)}${replyText.length > 80 ? "…" : ""}"`,
       });
 
-      const { data, error } = await supabase.functions.invoke("classify-reply", {
-        body: { replyText, leadId, scenarioKey, businessName },
-      });
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? "classify-reply failed");
+      // STEP 1 — classify-and-notify
+      pushLog({ kind: "info", title: "Step 1 — classify-and-notify", detail: "Calling Claude…" });
+      const { data: classifyData, error: classifyErr } = await supabase.functions.invoke(
+        "classify-and-notify",
+        { body: { replyText, businessName, leadId } },
+      );
+      if (classifyErr) throw new Error(`classify-and-notify: ${classifyErr.message}`);
+      if (!classifyData?.success) throw new Error(`classify-and-notify: ${classifyData?.error ?? "failed"}`);
 
-      const intent = data.intent ?? "?";
-
+      const intent: "YES" | "NO" | "MAYBE" = classifyData.intent ?? "MAYBE";
       pushLog({
         kind: "classify",
         title: `Classified → ${intent}`,
-        detail: `Claude model: ${data.model ?? "unknown"}`,
-        data: { ...data, intent },
+        detail: `Claude model: ${classifyData.model ?? "unknown"}`,
+        data: { ...classifyData, intent },
       });
 
       if (intent === "YES") {
-        const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
-        const { data: notification, error: notificationError } = await supabase
-          .from("notifications")
-          .insert({
-            lead_id: leadId,
-            type: "yes_reply",
-            kind: "yes_reply",
-            business_name: businessName ?? "Unknown",
-            reply_body: replyText,
-            reply_full: replyText,
-            reply_preview: firstLine,
-            read: false,
-            acted_on: false,
-            status: "unread",
-            mock_site_id: data.mockSiteId ?? null,
-          })
-          .select("*")
+        // STEP 2 — generate-mock (only on YES; the realtime subscription
+        // will surface the popup independently). Fetch lead context first.
+        const { data: leadRow } = await supabase
+          .from("leads")
+          .select("business_name,niche,city,state,county,phone,site_audit_json")
+          .eq("id", leadId)
           .single();
-        if (notificationError) throw notificationError;
-        if (notification) showNow(notification as YesNotification);
+        pushLog({ kind: "info", title: "Step 2 — generate-mock", detail: "Building mock site…" });
+        const { data: mockData, error: mockErr } = await supabase.functions.invoke(
+          "generate-mock",
+          {
+            body: {
+              leadId,
+              businessName: leadRow?.business_name ?? businessName,
+              niche: leadRow?.niche ?? null,
+              city: leadRow?.city ?? null,
+              state: leadRow?.state ?? null,
+              county: leadRow?.county ?? null,
+              phone: leadRow?.phone ?? null,
+              reviewCount: (leadRow?.site_audit_json as { review_count?: number } | null)?.review_count ?? null,
+              rating: (leadRow?.site_audit_json as { rating?: number } | null)?.rating ?? null,
+            },
+          },
+        );
+        if (mockErr) throw new Error(`generate-mock: ${mockErr.message}`);
+        if (!mockData?.success) throw new Error(`generate-mock: ${mockData?.error ?? "failed"}`);
+        pushLog({
+          kind: "info",
+          title: "Mock site generated",
+          detail: mockData.url,
+          data: mockData,
+        });
+
+        // Belt-and-braces: also push the popup locally in case realtime is slow.
+        if (classifyData.notificationId) {
+          const { data: notif } = await supabase
+            .from("notifications")
+            .select("*")
+            .eq("id", classifyData.notificationId)
+            .single();
+          if (notif) showNow(notif as YesNotification);
+        }
         toast.success(`YES — popup incoming for ${businessName}.`);
       } else if (intent === "NO") {
         toast(`${businessName} replied not interested. Lead archived.`, {
           style: { background: "#2a2a2a", color: "#cfcfcf", border: "1px solid #3a3a3a" },
         });
       } else {
-        toast.message(`MAYBE — routed to Replies tab as Needs Response.`);
+        toast(`MAYBE — routed to Replies tab as Needs Response.`, {
+          style: { background: "#0c2a44", color: "#a8d4ff", border: "1px solid #1d4a78" },
+        });
       }
 
       setReplyText("");
@@ -163,32 +188,6 @@ export default function TestEmails() {
       toast.error(message);
     } finally {
       setClassifying(false);
-    }
-  }
-
-  async function handleCheckReplies() {
-    if (checking) return;
-    setChecking(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("process-reply", {});
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? "Check failed");
-      pushLog({
-        kind: "check",
-        title: `Checked replies → ${data.processed} processed`,
-        detail:
-          (data.results ?? [])
-            .map((r: { businessName?: string; id?: string; intent?: string; error?: string }) => `${r.businessName ?? r.id}: ${r.intent ?? r.error}`)
-            .join(" · ") || "No pending replies.",
-        data,
-      });
-      toast.success(`Checked replies — ${data.processed} processed.`);
-    } catch (e) {
-      const message = getErrorMessage(e, "Check replies failed");
-      pushLog({ kind: "error", title: "Check replies failed", detail: message });
-      toast.error(message);
-    } finally {
-      setChecking(false);
     }
   }
 
@@ -251,13 +250,6 @@ export default function TestEmails() {
               className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
             >
               {classifying ? "Classifying…" : "Simulate Reply"}
-            </button>
-            <button
-              onClick={handleCheckReplies}
-              disabled={checking}
-              className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-card-foreground/5 disabled:opacity-50"
-            >
-              {checking ? "Checking…" : "Check Replies"}
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">

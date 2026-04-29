@@ -1,4 +1,5 @@
-// Draft (or regenerate) Brad's YES-response email via Claude.
+// Draft Brad's YES-response email via Claude using the spec prompt.
+// Returns { success, draft, subject, model }.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -9,26 +10,43 @@ const corsHeaders = {
 };
 
 const CLAUDE_MODELS = [
+  "claude-haiku-3-5-20251001",
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-5-20250929",
-  "claude-opus-4-5-20251101",
 ];
 
-function buildPrompt(lead: any): string {
-  const reviewCount = lead.site_audit_json?.review_count ?? "many";
-  const rating = lead.site_audit_json?.rating ?? "5.0";
-  return `Write a reply email from Brad Hemminger to a local business owner who just said yes to learning more about a website. Under 200 words. Warm and confident not salesy. Tell them the price is a flat $500 complete. Tell them it will be fully built within 48 hours or it is completely free no questions asked. Tell them you are sending over a free mock of their site right now so they can see exactly what it could look like. Ask two questions only — do they have a logo or any photos of their work, and have they seen any websites they like the look of. Sign off as Brad Hemminger with their county. End with Reply STOP anytime no hard feelings.
+const SYSTEM_PROMPT =
+  "You are Brad Hemminger replying to a local business owner who said yes. First person always. Under 200 words. Warm confident not salesy. Price is flat 500 dollars complete no hidden fees. Fully built and live within 48 hours or completely free no questions asked. Tell them I am putting their free mock together right now. Include this line naturally: Here is your free preview — then the mock URL on its own line. Ask only — do they have a logo or photos, and have they seen any websites they like. Sign off — Brad Hemminger then county name and the word County. End with: Reply STOP anytime — no hard feelings.";
 
-Business details:
-Name ${lead.business_name}
-Owner ${lead.owner_name ?? "(unknown)"}
-City ${lead.city ?? ""}
-County ${lead.county ?? ""}
-Niche ${lead.niche ?? ""}
-Reviews ${reviewCount} at ${rating} stars.`;
+function buildUserMessage(vars: {
+  business_name: string;
+  city: string;
+  state: string;
+  county: string;
+  niche: string;
+  review_count: number | string;
+  rating: number | string;
+  mock_url: string;
+}) {
+  return [
+    `business_name: ${vars.business_name}`,
+    `city: ${vars.city}`,
+    `state: ${vars.state}`,
+    `county: ${vars.county}`,
+    `niche: ${vars.niche}`,
+    `review_count: ${vars.review_count}`,
+    `rating: ${vars.rating}`,
+    `mock_url: ${vars.mock_url}`,
+  ].join("\n");
 }
 
-async function draftWithClaude(apiKey: string, prompt: string) {
+function ensureCountySuffix(county: string): string {
+  const c = (county || "").trim();
+  if (!c) return "";
+  return /county$/i.test(c) ? c : `${c} County`;
+}
+
+async function draftWithClaude(apiKey: string, userMessage: string) {
   const errs: string[] = [];
   for (const model of CLAUDE_MODELS) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -41,12 +59,14 @@ async function draftWithClaude(apiKey: string, prompt: string) {
       body: JSON.stringify({
         model,
         max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userMessage }],
       }),
     });
     if (res.ok) {
       const d = await res.json();
-      const text: string = d?.content?.map((c: any) => c.text || "").join("\n").trim() || "";
+      const text: string =
+        d?.content?.map((c: { text?: string }) => c.text || "").join("\n").trim() || "";
       return { text, model };
     }
     const t = await res.text();
@@ -65,24 +85,51 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const { leadId } = await req.json();
+    const { leadId, mockUrl: mockUrlIn } = await req.json();
     if (!leadId) throw new Error("leadId required");
 
     const { data: lead, error } = await supabase
       .from("leads")
-      .select("id,business_name,owner_name,city,state,county,niche,site_audit_json")
+      .select("id,business_name,city,state,county,niche,site_audit_json")
       .eq("id", leadId)
       .single();
     if (error || !lead) throw new Error(`Lead not found: ${error?.message}`);
 
-    const prompt = buildPrompt(lead);
-    const { text, model } = await draftWithClaude(ANTHROPIC, prompt);
+    let mockUrl: string | null = mockUrlIn ?? null;
+    if (!mockUrl) {
+      const { data: latest } = await supabase
+        .from("mock_sites")
+        .select("preview_url")
+        .eq("lead_id", leadId)
+        .order("requested_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      mockUrl = latest?.preview_url ?? null;
+    }
+
+    const reviewCount = lead.site_audit_json?.review_count ?? "many";
+    const rating = lead.site_audit_json?.rating ?? "5.0";
+    const fullCounty = ensureCountySuffix(lead.county || lead.city || "");
+
+    const userMessage = buildUserMessage({
+      business_name: lead.business_name,
+      city: lead.city ?? "",
+      state: lead.state ?? "",
+      county: fullCounty,
+      niche: lead.niche ?? "",
+      review_count: reviewCount,
+      rating: rating,
+      mock_url: mockUrl ?? "(mock site is being generated)",
+    });
+
+    const { text, model } = await draftWithClaude(ANTHROPIC, userMessage);
 
     return new Response(
       JSON.stringify({
         success: true,
         draft: text,
-        subject: `Re: Quick mock of your new site, ${lead.business_name}`,
+        subject: `Re: Your free site preview, ${lead.business_name}`,
+        mockUrl,
         model,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
