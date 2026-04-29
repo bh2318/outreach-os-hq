@@ -248,13 +248,16 @@ Deno.serve(async (req) => {
     const emailBody = enforceCountySignoff(parsed.body, scenario.county);
     const wc = wordCount(emailBody);
 
+    // Subject must be exactly "Quick question for <business name>" — no brackets, no prefix.
+    const cleanSubject = `Quick question for ${scenario.name}`;
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: FROM_ADDRESS,
         to: [RECIPIENT],
-        subject: `[${scenario.name}] ${subject}`,
+        reply_to: "b.h.weboutreach@gmail.com",
+        subject: cleanSubject,
         text: emailBody,
       }),
     });
@@ -265,7 +268,7 @@ Deno.serve(async (req) => {
     if (leadId) {
       await supabase.from("outreach_emails").insert({
         lead_id: leadId,
-        subject,
+        subject: cleanSubject,
         body: emailBody,
         sent_at: new Date().toISOString(),
         status: delivered ? "sent" : "failed",
@@ -287,9 +290,9 @@ Deno.serve(async (req) => {
         leadId,
         scenario: scenario.name,
         scenarioKey: scenario.key,
-        subject,
+        subject: cleanSubject,
         body: emailBody,
-        fullEmail: `Subject: ${subject}\n\n${emailBody}`,
+        fullEmail: `Subject: ${cleanSubject}\n\n${emailBody}`,
         wordCount: wc,
         model,
         timestamp: new Date().toISOString(),

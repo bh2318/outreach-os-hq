@@ -57,7 +57,8 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: FROM_ADDRESS,
         to: [RECIPIENT],
-        subject: `[${lead?.business_name ?? "Lead"}] ${finalSubject}`,
+        reply_to: "b.h.weboutreach@gmail.com",
+        subject: finalSubject,
         text: finalBody,
       }),
     });

@@ -356,6 +356,7 @@ Deno.serve(async (req) => {
       .upload(fileName, new Blob([html], { type: "text/html" }), {
         upsert: true,
         contentType: "text/html",
+        cacheControl: "public, max-age=3600",
       });
     if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
 
