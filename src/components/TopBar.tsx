@@ -31,13 +31,13 @@ export function TopBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-4 max-md:hidden">
-        <StatItem label="Leads today" value={String(data?.leadsToday ?? 0)} />
+        <StatItem label="Leads in queue" value={String(data?.leadsInQueue ?? 0)} />
         <span className="w-px h-4 bg-faint" />
-        <StatItem label="Emails sent" value={String(data?.emailsSent ?? 0)} />
+        <StatItem label="Emails sent today" value={String(data?.emailsSentToday ?? 0)} />
         <span className="w-px h-4 bg-faint" />
-        <StatItem label="Reply rate" value={`${data?.replyRate ?? 0}%`} />
+        <StatItem label="Deals this month" value={String(data?.dealsThisMonth ?? 0)} />
         <span className="w-px h-4 bg-faint" />
-        <StatItem label="Revenue" value={`$${((data?.revenueCents ?? 0) / 100).toLocaleString()}`} />
+        <StatItem label="Revenue MTD" value={`$${((data?.revenueMtdCents ?? 0) / 100).toLocaleString()}`} />
       </div>
     </div>
   );
