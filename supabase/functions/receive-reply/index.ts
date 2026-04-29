@@ -14,6 +14,32 @@ const corsHeaders = {
 const CLASSIFY_PROMPT =
   "Classify this email reply as YES NO or MAYBE. YES means the person is interested or wants to see more. NO means not interested or wants to stop. MAYBE means they asked a question or are unsure. Reply with one word only.";
 
+const YES_DRAFT_PROMPT =
+  "You are Brad Hemminger replying to a local business owner who just said yes. Warm, confident, already moving. First person throughout. Use this structure exactly. Opening: Hey followed by their first name if known otherwise Hey, then: appreciate you getting back to me. Paragraph two: I am already getting started on your free mock website. This part of the process can have as much or as little input from you as you would like — totally up to you. Paragraph three: If you have a logo, any photos of your work, or even just examples of websites you like the look of — from any industry — send them my way. Anything you can share helps me bring your vision to life. Everything else I can fill in using your public information and my own creative input. Closing line exactly: Soon as you get back to me I will get everything wrapped up and sent over so we can go from there. Sign off: Brad Hemminger on one line, their county name followed by County on the next line. Final line exactly: Reply STOP anytime — no hard feelings. Never mention price. Never mention 48 hours. Never mention service contract. Short sentences. Plain words. Never eager.";
+
+const MAYBE_DRAFT_PROMPT =
+  "You are Brad Hemminger replying to a local business owner who replied with a question or hesitation. Warm, confident, no pressure. First person. Two short paragraphs maximum. Answer their question directly and plainly. End with: Reply STOP anytime — no hard feelings. Sign off: Brad Hemminger on one line, their county name followed by County on the next line. Never mention price. Never eager. Plain words.";
+
+async function draftReplyWithClaude(apiKey: string, system: string, user: string): Promise<string> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        system,
+        messages: [{ role: "user", content: user }],
+      }),
+    });
+    if (!res.ok) return "";
+    const d = await res.json();
+    return (d?.content?.[0]?.text ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
 function ok(body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -191,8 +217,34 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
+    // Pull richer lead info for draft personalization (county etc.)
+    const { data: leadFull } = await supabase
+      .from("leads")
+      .select("id,business_name,owner_name,city,state,county,niche,rating,review_count")
+      .eq("id", lead.id)
+      .maybeSingle();
+    const fullCounty = (() => {
+      const c = (leadFull?.county || leadFull?.city || "").trim();
+      if (!c) return "";
+      return /county$/i.test(c) ? c : `${c} County`;
+    })();
+    const leadContext = [
+      `business_name: ${leadFull?.business_name ?? lead.business_name}`,
+      `owner_name: ${leadFull?.owner_name ?? ""}`,
+      `niche: ${leadFull?.niche ?? ""}`,
+      `city: ${leadFull?.city ?? ""}`,
+      `state: ${leadFull?.state ?? ""}`,
+      `county: ${fullCounty}`,
+      "",
+      `their_reply: ${body}`,
+      "",
+      "Write the reply email now.",
+    ].join("\n");
+
     // Step 3 — branch
     if (classification === "YES") {
+      const draft = await draftReplyWithClaude(ANTHROPIC, YES_DRAFT_PROMPT, leadContext);
+      const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("notifications").insert({
         lead_id: lead.id,
         type: "yes_reply",
@@ -216,13 +268,15 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
+        draft_response: draft || null,
+        draft_subject: draftSubject,
       });
       await supabase.from("leads").update({ status: "replied" }).eq("id", lead.id);
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied YES and notification created",
+        detail: "lead replied YES — draft pre-generated and notification created",
         outcome: "success",
       });
     } else if (classification === "NO") {
@@ -246,6 +300,8 @@ Deno.serve(async (req) => {
         outcome: "success",
       });
     } else {
+      const draft = await draftReplyWithClaude(ANTHROPIC, MAYBE_DRAFT_PROMPT, leadContext);
+      const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("replies").insert({
         lead_id: lead.id,
         from_email: from,
@@ -256,12 +312,14 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.7,
         actioned: false,
+        draft_response: draft || null,
+        draft_subject: draftSubject,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied with question routed to replies tab",
+        detail: "lead replied with question — draft pre-generated",
         outcome: "success",
       });
     }

@@ -93,6 +93,45 @@ export type Database = {
           },
         ]
       }
+      followup_queue: {
+        Row: {
+          business_name: string
+          created_at: string
+          draft_body: string | null
+          draft_subject: string | null
+          due_date: string
+          id: string
+          lead_id: string
+          sent: boolean
+          sent_at: string | null
+          sequence_number: number
+        }
+        Insert: {
+          business_name: string
+          created_at?: string
+          draft_body?: string | null
+          draft_subject?: string | null
+          due_date?: string
+          id?: string
+          lead_id: string
+          sent?: boolean
+          sent_at?: string | null
+          sequence_number: number
+        }
+        Update: {
+          business_name?: string
+          created_at?: string
+          draft_body?: string | null
+          draft_subject?: string | null
+          due_date?: string
+          id?: string
+          lead_id?: string
+          sent?: boolean
+          sent_at?: string | null
+          sequence_number?: number
+        }
+        Relationships: []
+      }
       incoming_replies: {
         Row: {
           classified_as: string | null
@@ -405,6 +444,8 @@ export type Database = {
           body: string | null
           classified_at: string | null
           confidence: number | null
+          draft_response: string | null
+          draft_subject: string | null
           email_id: string | null
           from_email: string | null
           id: string
@@ -418,6 +459,8 @@ export type Database = {
           body?: string | null
           classified_at?: string | null
           confidence?: number | null
+          draft_response?: string | null
+          draft_subject?: string | null
           email_id?: string | null
           from_email?: string | null
           id?: string
@@ -431,6 +474,8 @@ export type Database = {
           body?: string | null
           classified_at?: string | null
           confidence?: number | null
+          draft_response?: string | null
+          draft_subject?: string | null
           email_id?: string | null
           from_email?: string | null
           id?: string
