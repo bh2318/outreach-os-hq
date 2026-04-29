@@ -42,13 +42,30 @@ function useFollowupQueue() {
       const today = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("followup_queue")
-        .select("*, leads(niche, city, state, last_contacted)")
+        .select("*")
         .eq("sent", false)
         .lte("due_date", today)
         .order("sequence_number", { ascending: false })
         .order("due_date", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as FollowupRow[];
+      const rows = (data ?? []) as Omit<FollowupRow, "leads">[];
+      const ids = Array.from(new Set(rows.map((r) => r.lead_id))).filter(Boolean);
+      let leadsById: Record<string, FollowupRow["leads"]> = {};
+      if (ids.length) {
+        const { data: leadRows } = await supabase
+          .from("leads")
+          .select("id, niche, city, state, last_contacted")
+          .in("id", ids);
+        for (const l of leadRows ?? []) {
+          leadsById[(l as any).id] = {
+            niche: (l as any).niche,
+            city: (l as any).city,
+            state: (l as any).state,
+            last_contacted: (l as any).last_contacted,
+          };
+        }
+      }
+      return rows.map((r) => ({ ...r, leads: leadsById[r.lead_id] ?? null })) as FollowupRow[];
     },
     refetchInterval: 30000,
   });
