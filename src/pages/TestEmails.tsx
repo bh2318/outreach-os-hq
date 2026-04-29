@@ -37,9 +37,34 @@ export default function TestEmails() {
   const [sending, setSending] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [classifying, setClassifying] = useState(false);
+  const [checkingInbox, setCheckingInbox] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [lastLeadId, setLastLeadId] = useState<string | null>(null);
   const [lastBusinessName, setLastBusinessName] = useState<string | null>(null);
+
+  async function handleCheckInbox() {
+    if (checkingInbox) return;
+    setCheckingInbox(true);
+    try {
+      pushLog({ kind: "check", title: "Polling Gmail inbox…", detail: "Calling poll-gmail-inbox" });
+      const { data, error } = await supabase.functions.invoke("poll-gmail-inbox", { body: {} });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error ?? "Inbox poll failed");
+      pushLog({
+        kind: "check",
+        title: `Inbox checked — ${data.processed ?? 0} processed`,
+        detail: `YES ${data.yes ?? 0} · NO ${data.no ?? 0} · MAYBE ${data.maybe ?? 0} · unmatched ${data.unmatched ?? 0}`,
+        data,
+      });
+      toast.success(`Inbox checked — ${data.processed ?? 0} replies processed`);
+    } catch (e) {
+      const message = getErrorMessage(e, "Inbox poll failed");
+      pushLog({ kind: "error", title: "Inbox poll failed", detail: message });
+      toast.error(message);
+    } finally {
+      setCheckingInbox(false);
+    }
+  }
 
   function pushLog(entry: Omit<LogEntry, "id" | "timestamp">) {
     setLog((prev) => [
