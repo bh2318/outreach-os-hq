@@ -12,7 +12,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const TEST_RECIPIENT = "b.h.weboutreach@gmail.com";
+// Resend sandbox mode (no verified domain) only allows sending to the
+// account owner's address. Route the test email there, but set reply_to
+// to the outreach inbox so replies still land in the right Gmail account.
+const TEST_RECIPIENT = "b.hemminger18@gmail.com";
 const REPLY_TO = "b.h.weboutreach@gmail.com";
 
 const PROMPT_SYSTEM =
