@@ -201,6 +201,9 @@ export type Database = {
           outreach_count: number
           owner_name: string | null
           phone: string | null
+          place_id: string | null
+          rating: number | null
+          review_count: number | null
           site_audit_json: Json | null
           site_score: number | null
           state: string | null
@@ -223,6 +226,9 @@ export type Database = {
           outreach_count?: number
           owner_name?: string | null
           phone?: string | null
+          place_id?: string | null
+          rating?: number | null
+          review_count?: number | null
           site_audit_json?: Json | null
           site_score?: number | null
           state?: string | null
@@ -245,6 +251,9 @@ export type Database = {
           outreach_count?: number
           owner_name?: string | null
           phone?: string | null
+          place_id?: string | null
+          rating?: number | null
+          review_count?: number | null
           site_audit_json?: Json | null
           site_score?: number | null
           state?: string | null
