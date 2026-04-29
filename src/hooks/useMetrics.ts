@@ -15,67 +15,90 @@ export function useDashboardMetrics() {
         contactedThisWeekRes,
         interestedRes,
         emailsSentTodayRes,
+        emailsSentTodayMidnightRes,
+        leadsFoundTodayRes,
+        repliesReceivedTodayRes,
         dealsThisMonthRes,
         paidThisMonthRes,
-        repliesThisWeekRes,
-        emailsThisWeekRes,
+        repliesAllRes,
+        emailsAllRes,
         followupsDueTodayRes,
         dealsClosedThisMonthRes,
+        dealsInProgressRes,
+        emailsAllTimeRes,
+        unactionedRepliesRes,
+        settingsRes,
       ] = await Promise.all([
-        // Leads in queue: status=new, outreach_count=0, not archived
         supabase.from("leads").select("id", { count: "exact", head: true })
           .eq("status", "new").eq("outreach_count", 0).eq("archived", false),
-        // Contacted this week: leads whose last_contacted within 7d
         supabase.from("leads").select("id", { count: "exact", head: true })
           .gte("last_contacted", startOfWeek.toISOString()),
-        // Interested: replies marked interested and not actioned
         supabase.from("replies").select("id", { count: "exact", head: true })
           .in("intent", ["interested", "price_inquiry", "mock_request", "call_request"])
           .eq("actioned", false),
-        // Emails sent today (last 24h via outreach_emails)
+        // Emails sent in last 24h (top bar "emails today")
         supabase.from("outreach_emails").select("id", { count: "exact", head: true })
           .gte("sent_at", last24h.toISOString()),
-        // Deals this month (created)
+        // Emails since midnight (dashboard "emails sent today")
+        supabase.from("outreach_emails").select("id", { count: "exact", head: true })
+          .gte("sent_at", startOfDay.toISOString()),
+        // Leads found today
+        supabase.from("leads").select("id", { count: "exact", head: true })
+          .gte("created_at", startOfDay.toISOString()),
+        // Replies received today
+        supabase.from("replies").select("id", { count: "exact", head: true })
+          .gte("received_at", startOfDay.toISOString()),
         supabase.from("deals").select("id", { count: "exact", head: true })
           .gte("created_at", startOfMonth.toISOString()),
-        // Revenue MTD: paid deals this month
         supabase.from("deals").select("actual_value, estimated_value, stage, stage_entered_at")
           .gte("stage_entered_at", startOfMonth.toISOString()).eq("stage", "paid"),
-        // Replies this week
-        supabase.from("replies").select("id", { count: "exact", head: true })
-          .gte("received_at", startOfWeek.toISOString()),
-        // Emails sent this week
-        supabase.from("outreach_emails").select("id", { count: "exact", head: true })
-          .gte("sent_at", startOfWeek.toISOString()),
-        // Follow-ups due today
+        // All replies count for reply rate
+        supabase.from("replies").select("id", { count: "exact", head: true }),
+        // All emails count for reply rate
+        supabase.from("outreach_emails").select("id", { count: "exact", head: true }),
         supabase.from("followup_queue").select("id", { count: "exact", head: true })
           .eq("sent", false).lte("due_date", new Date().toISOString().slice(0, 10)),
-        // Deals closed this month (won/delivered/paid via stage_entered_at)
         supabase.from("deals").select("id", { count: "exact", head: true })
           .gte("stage_entered_at", startOfMonth.toISOString())
           .in("stage", ["won", "building", "delivered", "paid"]),
+        // Deals in progress: not paid, not archived
+        supabase.from("deals").select("id", { count: "exact", head: true })
+          .not("stage", "in", "(paid,archived)"),
+        // Emails sent all time
+        supabase.from("outreach_emails").select("id", { count: "exact", head: true }),
+        // Unactioned replies (action needed count)
+        supabase.from("replies").select("id", { count: "exact", head: true }).eq("actioned", false),
+        supabase.from("settings").select("outreach_active").eq("id", 1).maybeSingle(),
       ]);
 
       const revenueMtdCents = (paidThisMonthRes.data || [])
         .reduce((s, d: any) => s + (d.actual_value ?? d.estimated_value ?? 0), 0);
 
-      const repliesWk = repliesThisWeekRes.count ?? 0;
-      const emailsWk = emailsThisWeekRes.count ?? 0;
-      const replyRateThisWeek = emailsWk > 0 ? Math.round((repliesWk / emailsWk) * 100) : 0;
+      const repliesAll = repliesAllRes.count ?? 0;
+      const emailsAll = emailsAllRes.count ?? 0;
+      const replyRatePct = emailsAll > 0 ? Math.round((repliesAll / emailsAll) * 1000) / 10 : 0;
 
       return {
         leadsInQueue: leadsInQueueRes.count ?? 0,
         contactedThisWeek: contactedThisWeekRes.count ?? 0,
         interested: interestedRes.count ?? 0,
         emailsSentToday: emailsSentTodayRes.count ?? 0,
+        emailsSentTodayMidnight: emailsSentTodayMidnightRes.count ?? 0,
+        leadsFoundToday: leadsFoundTodayRes.count ?? 0,
+        repliesReceivedToday: repliesReceivedTodayRes.count ?? 0,
         dealsThisMonth: dealsThisMonthRes.count ?? 0,
         revenueMtdCents,
-        replyRateThisWeek,
+        replyRateThisWeek: replyRatePct,
+        replyRatePct,
         followupsDueToday: followupsDueTodayRes.count ?? 0,
         dealsClosedThisMonth: dealsClosedThisMonthRes.count ?? 0,
+        dealsInProgress: dealsInProgressRes.count ?? 0,
+        emailsAllTime: emailsAllTimeRes.count ?? 0,
+        unactionedReplies: unactionedRepliesRes.count ?? 0,
+        outreachActive: !!settingsRes.data?.outreach_active,
       };
     },
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   });
 }
 
@@ -85,7 +108,6 @@ export function useTabBadges() {
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const [leads, calls, mocks, replies, followups] = await Promise.all([
-        // Leads: uncontacted leads count (status=new, outreach_count=0, not archived)
         supabase.from("leads").select("id", { count: "exact", head: true })
           .eq("status", "new").eq("outreach_count", 0).eq("archived", false),
         supabase.from("replies").select("id", { count: "exact", head: true })
@@ -94,7 +116,6 @@ export function useTabBadges() {
           .in("status", ["pending", "generating", "ready"]),
         supabase.from("replies").select("id", { count: "exact", head: true })
           .eq("actioned", false),
-        // Follow-ups due today (from queue)
         supabase.from("followup_queue").select("id", { count: "exact", head: true })
           .eq("sent", false).lte("due_date", today),
       ]);
