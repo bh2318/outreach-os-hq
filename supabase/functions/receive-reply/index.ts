@@ -14,6 +14,32 @@ const corsHeaders = {
 const CLASSIFY_PROMPT =
   "Classify this email reply as YES NO or MAYBE. YES means the person is interested or wants to see more. NO means not interested or wants to stop. MAYBE means they asked a question or are unsure. Reply with one word only.";
 
+const YES_DRAFT_PROMPT =
+  "You are Brad Hemminger replying to a local business owner who just said yes. Warm, confident, already moving. First person throughout. Use this structure exactly. Opening: Hey followed by their first name if known otherwise Hey, then: appreciate you getting back to me. Paragraph two: I am already getting started on your free mock website. This part of the process can have as much or as little input from you as you would like — totally up to you. Paragraph three: If you have a logo, any photos of your work, or even just examples of websites you like the look of — from any industry — send them my way. Anything you can share helps me bring your vision to life. Everything else I can fill in using your public information and my own creative input. Closing line exactly: Soon as you get back to me I will get everything wrapped up and sent over so we can go from there. Sign off: Brad Hemminger on one line, their county name followed by County on the next line. Final line exactly: Reply STOP anytime — no hard feelings. Never mention price. Never mention 48 hours. Never mention service contract. Short sentences. Plain words. Never eager.";
+
+const MAYBE_DRAFT_PROMPT =
+  "You are Brad Hemminger replying to a local business owner who replied with a question or hesitation. Warm, confident, no pressure. First person. Two short paragraphs maximum. Answer their question directly and plainly. End with: Reply STOP anytime — no hard feelings. Sign off: Brad Hemminger on one line, their county name followed by County on the next line. Never mention price. Never eager. Plain words.";
+
+async function draftReplyWithClaude(apiKey: string, system: string, user: string): Promise<string> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        system,
+        messages: [{ role: "user", content: user }],
+      }),
+    });
+    if (!res.ok) return "";
+    const d = await res.json();
+    return (d?.content?.[0]?.text ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
 function ok(body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status: 200,
