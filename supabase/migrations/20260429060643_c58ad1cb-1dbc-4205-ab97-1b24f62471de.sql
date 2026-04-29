@@ -1,0 +1,1 @@
+SELECT cron.unschedule('poll-gmail-inbox-every-5min');
