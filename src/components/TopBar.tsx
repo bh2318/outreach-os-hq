@@ -1,4 +1,5 @@
 import { useDashboardMetrics } from "@/hooks/useMetrics";
+import { NotificationBell } from "./NotificationBell";
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
@@ -11,6 +12,7 @@ function StatItem({ label, value }: { label: string; value: string }) {
 
 export function TopBar() {
   const { data } = useDashboardMetrics();
+  const replyRate = data?.replyRatePct ?? 0;
   return (
     <div className="h-12 border-b border-border bg-background flex items-center px-4 gap-6 sticky top-0 z-30 overflow-x-auto whitespace-nowrap">
       <div className="flex items-center gap-2.5">
@@ -26,18 +28,24 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2 ml-2">
-        <span className="pulse-dot" />
-        <span className="text-[11px] text-muted-foreground">System running</span>
+        <span className={data?.outreachActive ? "pulse-dot" : "w-1.5 h-1.5 rounded-full bg-subtle"} />
+        <span className="text-[11px] text-muted-foreground">
+          {data?.outreachActive ? "System running" : "System paused"}
+        </span>
       </div>
 
       <div className="ml-auto flex items-center gap-4 max-md:hidden">
         <StatItem label="Leads in queue" value={String(data?.leadsInQueue ?? 0)} />
         <span className="w-px h-4 bg-faint" />
-        <StatItem label="Emails sent today" value={String(data?.emailsSentToday ?? 0)} />
+        <StatItem label="Emails today" value={String(data?.emailsSentToday ?? 0)} />
         <span className="w-px h-4 bg-faint" />
-        <StatItem label="Deals this month" value={String(data?.dealsThisMonth ?? 0)} />
+        <StatItem label="Reply rate" value={`${replyRate.toFixed(1)}%`} />
         <span className="w-px h-4 bg-faint" />
         <StatItem label="Revenue MTD" value={`$${((data?.revenueMtdCents ?? 0) / 100).toLocaleString()}`} />
+      </div>
+
+      <div className="ml-3 flex items-center gap-1">
+        <NotificationBell />
       </div>
     </div>
   );
