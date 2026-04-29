@@ -74,15 +74,25 @@ Deno.serve(async (req) => {
       logger: false,
     });
 
-    await client.connect();
+    try {
+      await client.connect();
+      console.log(`[poll-gmail-inbox] IMAP connected as ${GMAIL_USER} to imap.gmail.com:993 (SSL)`);
+    } catch (connErr) {
+      const e = connErr as { code?: string; responseText?: string; message?: string };
+      const errMsg = `IMAP connection failed for ${GMAIL_USER}@imap.gmail.com:993 — code=${e.code ?? "UNKNOWN"} response="${e.responseText ?? ""}" message="${e.message ?? String(connErr)}"`;
+      console.error(`[poll-gmail-inbox] ${errMsg}`);
+      throw new Error(errMsg);
+    }
+
     const lock = await client.getMailboxLock("INBOX");
     try {
-      // Fetch UNSEEN messages
+      // Fetch UNSEEN messages only
       for await (const msg of client.fetch({ seen: false }, { envelope: true, source: true, uid: true })) {
         try {
           const fromAddr = msg.envelope?.from?.[0];
           const senderEmail = extractEmailAddress(fromAddr?.address ?? null);
           const subjectLine = msg.envelope?.subject ?? "";
+          console.log(`[poll-gmail-inbox] UNSEEN uid=${msg.uid} from="${fromAddr?.address ?? "unknown"}" subject="${subjectLine}"`);
 
           // Parse plain-text body from the raw RFC822 source.
           const rawSource = msg.source ? new TextDecoder().decode(msg.source) : "";
