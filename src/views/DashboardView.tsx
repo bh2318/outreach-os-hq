@@ -45,7 +45,7 @@ export function DashboardView() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
           label="Leads today"
           value={String(m?.leadsToday ?? 0)}
@@ -54,6 +54,12 @@ export function DashboardView() {
         <MetricCard label="Interested" value={String(m?.interested ?? 0)} delta={`${badges?.replies ?? 0} unactioned`} />
         <MetricCard label="Closed this week" value={String(m?.closedThisWeek ?? 0)} delta="+1 vs last week" />
         <MetricCard label="Revenue MTD" value={`$${((m?.revenueCents ?? 0) / 100).toLocaleString()}`} delta="+$0 vs last month" />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <MetricCard label="Emails sent" value={String(m?.emailsSent ?? 0)} delta={`${m?.totalContacted ?? 0} leads contacted`} />
+        <MetricCard label="Reply rate" value={`${m?.replyRate ?? 0}%`} delta={`${m?.totalReplies ?? 0} replies received`} />
+        <MetricCard label="Pipeline value" value={`$${((m?.revenueCents ?? 0) / 100).toLocaleString()}`} delta="month to date" />
       </div>
 
       <ScraperBar />

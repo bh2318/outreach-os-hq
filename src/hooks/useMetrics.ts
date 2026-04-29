@@ -25,6 +25,13 @@ export function useDashboardMetrics() {
       const opened = openedEmails.count ?? 0;
       const openRate = sent > 0 ? Math.round((opened / sent) * 100) : 0;
 
+      // Reply rate: total replies / total contacted leads
+      const [{ count: totalReplies }, { count: totalContacted }] = await Promise.all([
+        supabase.from("replies").select("id", { count: "exact", head: true }),
+        supabase.from("leads").select("id", { count: "exact", head: true }).gt("outreach_count", 0),
+      ]);
+      const replyRate = (totalContacted ?? 0) > 0 ? Math.round(((totalReplies ?? 0) / (totalContacted ?? 1)) * 100) : 0;
+
       return {
         leadsToday: todayLeads.count ?? 0,
         leadsYesterday: yesterdayLeads.count ?? 0,
@@ -33,6 +40,9 @@ export function useDashboardMetrics() {
         revenueCents,
         emailsSent: sent,
         openRate,
+        replyRate,
+        totalReplies: totalReplies ?? 0,
+        totalContacted: totalContacted ?? 0,
       };
     },
     refetchInterval: 15000,
