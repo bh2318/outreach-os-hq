@@ -48,7 +48,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const { data } = await supabase
       .from("notifications")
       .select("*")
-      .eq("type", "yes_reply")
+      .in("type", ["yes_reply", "maybe_reply", "no_reply"])
       .eq("read", false)
       .eq("acted_on", false)
       .order("created_at", { ascending: false })
@@ -75,7 +75,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         (payload) => {
           console.log("notifications realtime event", payload);
           const n = payload.new as unknown as YesNotification & { kind?: string };
-          if ((n.type ?? n.kind) !== "yes_reply" || n.read === true || n.acted_on === true) return;
+          const t = n.type ?? n.kind;
+          if (!t || !["yes_reply", "maybe_reply", "no_reply"].includes(t)) return;
+          if (n.read === true || n.acted_on === true) return;
           if (seen.has(n.id)) return;
           showNow(n);
         },

@@ -77,64 +77,59 @@ Deno.serve(async (req) => {
 
     let notificationId: string | null = null;
 
-    if (intent === "YES") {
-      const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
-      const { data: notif, error: notifErr } = await supabase
-        .from("notifications")
-        .insert({
-          type: "yes_reply",
-          kind: "yes_reply",
-          business_name: businessName ?? "Unknown",
-          reply_body: replyText,
-          reply_full: replyText,
-          reply_preview: firstLine,
-          read: false,
-          acted_on: false,
-          status: "unread",
-          lead_id: leadId ?? null,
-        })
-        .select("id")
-        .single();
-      if (notifErr) throw new Error(`notification insert failed: ${notifErr.message}`);
-      notificationId = notif?.id ?? null;
-      await supabase.from("activity_log").insert({
+    const firstLine = replyText.trim().split(/\r?\n/)[0].slice(0, 240);
+
+    // Always persist a replies row so it shows in the Replies tab
+    await supabase.from("replies").insert({
+      lead_id: leadId ?? null,
+      body: replyText,
+      subject: "(inbound reply)",
+      from_email: "inbound@local",
+      intent: intent === "YES" ? "interested" : intent === "NO" ? "not_interested" : "needs_response",
+      confidence: 1.0,
+      classified_at: new Date().toISOString(),
+      actioned: intent === "NO",
+    });
+
+    // Insert a notification for every classification — drives the overlay flow.
+    const notifKind =
+      intent === "YES" ? "yes_reply" : intent === "NO" ? "no_reply" : "maybe_reply";
+    const { data: notif, error: notifErr } = await supabase
+      .from("notifications")
+      .insert({
+        type: notifKind,
+        kind: notifKind,
+        business_name: businessName ?? "Unknown",
+        reply_body: replyText,
+        reply_full: replyText,
+        reply_preview: firstLine,
+        read: false,
+        acted_on: false,
+        status: "unread",
         lead_id: leadId ?? null,
-        business_name: businessName ?? null,
-        action_type: "reply_classified_yes",
-        outcome: "success",
-        detail: "YES reply received",
-      });
-    } else if (intent === "NO") {
-      if (leadId) {
-        await supabase.from("leads").update({ archived: true, status: "archived" }).eq("id", leadId);
-      }
-      await supabase.from("activity_log").insert({
-        lead_id: leadId ?? null,
-        business_name: businessName ?? null,
-        action_type: "reply_classified_no",
-        outcome: "success",
-        detail: `${businessName ?? "Lead"} replied not interested — lead archived`,
-      });
-    } else {
-      // MAYBE — surface in Replies tab as needs_response
-      await supabase.from("replies").insert({
-        lead_id: leadId ?? null,
-        body: replyText,
-        subject: "(inbound reply)",
-        from_email: "inbound@local",
-        intent: "needs_response",
-        confidence: 1.0,
-        classified_at: new Date().toISOString(),
-        actioned: false,
-      });
-      await supabase.from("activity_log").insert({
-        lead_id: leadId ?? null,
-        business_name: businessName ?? null,
-        action_type: "reply_classified_maybe",
-        outcome: "success",
-        detail: "MAYBE reply — needs operator response",
-      });
+      })
+      .select("id")
+      .single();
+    if (notifErr) throw new Error(`notification insert failed: ${notifErr.message}`);
+    notificationId = notif?.id ?? null;
+
+    if (intent === "NO" && leadId) {
+      await supabase.from("leads").update({ archived: true, status: "archived" }).eq("id", leadId);
     }
+
+    await supabase.from("activity_log").insert({
+      lead_id: leadId ?? null,
+      business_name: businessName ?? null,
+      action_type:
+        intent === "YES" ? "reply_classified_yes"
+        : intent === "NO" ? "reply_classified_no"
+        : "reply_classified_maybe",
+      outcome: "success",
+      detail:
+        intent === "YES" ? "YES reply received"
+        : intent === "NO" ? `${businessName ?? "Lead"} replied not interested — lead archived`
+        : "MAYBE reply — needs operator response",
+    });
 
     return new Response(
       JSON.stringify({ success: true, intent, raw, model, notificationId }),

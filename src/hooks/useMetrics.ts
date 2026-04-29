@@ -43,15 +43,24 @@ export function useTabBadges() {
   return useQuery({
     queryKey: ["tab-badges"],
     queryFn: async () => {
-      const [calls, mocks, replies] = await Promise.all([
+      const followupCutoff = new Date();
+      followupCutoff.setDate(followupCutoff.getDate() - 4);
+      const [calls, mocks, replies, followups] = await Promise.all([
         supabase.from("replies").select("id", { count: "exact", head: true }).eq("intent", "call_request").eq("actioned", false),
         supabase.from("mock_sites").select("id", { count: "exact", head: true }).in("status", ["pending", "generating", "ready"]),
         supabase.from("replies").select("id", { count: "exact", head: true }).eq("actioned", false),
+        supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "contacted")
+          .eq("archived", false)
+          .lt("last_contacted", followupCutoff.toISOString()),
       ]);
       return {
         calls: calls.count ?? 0,
         mocks: mocks.count ?? 0,
         replies: replies.count ?? 0,
+        followups: followups.count ?? 0,
       };
     },
     refetchInterval: 10000,
