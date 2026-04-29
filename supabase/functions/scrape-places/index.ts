@@ -85,6 +85,25 @@ Deno.serve(async (req) => {
       const stateName = pickComp(comps, "administrative_area_level_1", true);
       const countyName = pickComp(comps, "administrative_area_level_2");
 
+      const websiteUrl: string | null = d.website ?? null;
+
+      // Score: no website = 100 (tier 1). Otherwise PageSpeed mobile score.
+      let siteScore: number | null = null;
+      if (!websiteUrl) {
+        siteScore = 100;
+      } else {
+        siteScore = await getPageSpeedMobileScore(websiteUrl, PLACES_KEY);
+        if (siteScore === null) siteScore = 50; // unknown -> treat as mid tier
+      }
+
+      // Tier: 1 = no website, 2 = score < 40, 3 = 40..55, 4 = > 55 (archived)
+      let tier = 4;
+      if (!websiteUrl) tier = 1;
+      else if (siteScore < 40) tier = 2;
+      else if (siteScore <= 55) tier = 3;
+
+      const status = tier === 4 ? "archived" : "new";
+
       const lead = {
         business_name: d.name ?? r.name,
         email: null as string | null,
@@ -93,11 +112,12 @@ Deno.serve(async (req) => {
         city: cityName,
         state: stateName,
         county: countyName,
-        website_url: d.website ?? null,
+        website_url: websiteUrl,
         rating: typeof d.rating === "number" ? d.rating : (typeof r.rating === "number" ? r.rating : null),
         review_count: typeof d.user_ratings_total === "number" ? d.user_ratings_total : (typeof r.user_ratings_total === "number" ? r.user_ratings_total : null),
         place_id: placeId,
-        status: "new",
+        status,
+        site_score: siteScore,
         niche,
       };
 
@@ -133,6 +153,9 @@ Deno.serve(async (req) => {
         review_count: lead.review_count,
         website_url: lead.website_url,
         has_website: !!lead.website_url,
+        site_score: siteScore,
+        tier,
+        status,
         address: lead.address,
         city: lead.city,
         state: lead.state,
@@ -140,7 +163,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ success: true, count: businesses.length, businesses }), {
+    // Sort: tier asc (1 first), then within tier by score asc (worst sites first for tier 2/3)
+    const sorted = businesses.sort((a, b) => {
+      const ta = a.tier as number, tb = b.tier as number;
+      if (ta !== tb) return ta - tb;
+      const sa = (a.site_score as number) ?? 0;
+      const sb = (b.site_score as number) ?? 0;
+      return sa - sb;
+    });
+
+    // Only display tiers 1-3; tier 4 (>55) is archived in DB but not surfaced.
+    const visible = sorted.filter((b) => (b.tier as number) !== 4);
+
+    return new Response(JSON.stringify({ success: true, count: visible.length, businesses: visible }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
