@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.send-daily-outreach]
 verify_jwt = false
+
+[functions.send-daily-summary]
+verify_jwt = false
