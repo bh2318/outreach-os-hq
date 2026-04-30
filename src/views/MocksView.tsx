@@ -618,11 +618,12 @@ function Workspace({ lead }: { lead: Lead }) {
             </button>
             <button
               onClick={() => setShowFinalize(true)}
-              disabled={!hasMock}
+              disabled={!hasMock || lead.status === "mock-sent"}
               className="btn-green"
               style={{ paddingLeft: 14, paddingRight: 14 }}
             >
-              <Send className="w-3 h-3" /> Finalize and Send
+              <Send className="w-3 h-3" />{" "}
+              {lead.status === "mock-sent" ? "Sent" : "Finalize and Send"}
             </button>
           </div>
 
