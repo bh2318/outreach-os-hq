@@ -609,7 +609,11 @@ function Workspace({ lead }: { lead: Lead }) {
               </button>
             </div>
             <div className="flex-1" />
-            <button className="btn-ghost" disabled={!hasMock}>
+            <button
+              className="btn-ghost"
+              disabled={!hasMock || isGenerating}
+              onClick={handleGenerate}
+            >
               <RefreshCw className="w-3 h-3" /> Regenerate
             </button>
             <button
