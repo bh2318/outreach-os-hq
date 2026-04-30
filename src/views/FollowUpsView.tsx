@@ -44,6 +44,7 @@ function useFollowupQueue() {
         .from("followup_queue")
         .select("*")
         .eq("sent", false)
+        .eq("archived", false)
         .lte("due_date", today)
         .order("sequence_number", { ascending: false })
         .order("due_date", { ascending: true });
