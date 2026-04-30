@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/Badge";
 import { Chip } from "@/components/Chip";
 import { SectionLabel } from "@/components/SectionLabel";
-import { logActivity } from "@/lib/activity";
+
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
