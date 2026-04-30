@@ -99,6 +99,10 @@ export function FollowUpsView() {
         .from("followup_queue")
         .update({ sent: true, sent_at: new Date().toISOString() })
         .eq("id", row.id);
+      // Final follow-up (sequence 4 = day 18) closes out the lead.
+      if (row.sequence_number >= 4) {
+        await supabase.from("leads").update({ status: "follow-up-complete" }).eq("id", row.lead_id);
+      }
       toast.success(res.delivered ? "Follow-up sent" : "Follow-up queued (sending disabled)");
       setOpenId(null);
       qc.invalidateQueries();

@@ -23,6 +23,22 @@ const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY);
 const REPLY_TO = "b.h.weboutreach@gmail.com";
 const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
+// Resolve the destination address for outreach.
+// Priority: 1) lead.email   2) contact@<domain-of-website_url>   3) null (phone-only)
+function resolveOutreachEmail(lead: { email: string | null; website_url: string | null }): string | null {
+  if (lead.email && lead.email.trim()) return lead.email.trim();
+  const url = (lead.website_url ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    if (!host || !host.includes(".")) return null;
+    return `contact@${host}`;
+  } catch {
+    return null;
+  }
+}
+
 const PROMPT_SYSTEM =
   "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Immediately before the sign off, on its own line, include exactly this sentence: Quick question — what is the single most important thing your website needs to do for your business? Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
 
@@ -195,20 +211,40 @@ Deno.serve(async (req) => {
     const { data: blacklist } = await supabase.from("unsubscribed").select("email");
     const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
 
-    // 4. Pull eligible candidates (not yet contacted, not unsubscribed, has email)
+    // 4. Pull eligible candidates (not yet contacted, not unsubscribed)
     const { data: leadsRaw, error: leadsErr } = await supabase
       .from("leads")
       .select("id,business_name,email,phone,address,niche,city,state,county,website_url,rating,review_count,site_score,status")
       .eq("status", "new")
       .eq("outreach_count", 0)
       .eq("archived", false)
-      .not("email", "is", null)
       .limit(MAX_PER_DAY * 3);
     if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
 
-    const candidates = (leadsRaw ?? []).filter(
-      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
-    ) as Lead[];
+    // Phone-only pass: any lead with no resolvable email gets marked phone-only and skipped.
+    const candidatesPre = (leadsRaw ?? []) as Lead[];
+    const candidates: Lead[] = [];
+    let phoneOnlyMarked = 0;
+    for (const l of candidatesPre) {
+      const dest = resolveOutreachEmail(l);
+      const blockedByUnsub = dest && blockedEmails.has(dest.toLowerCase());
+      if (!dest) {
+        await supabase.from("leads").update({ status: "phone_only" }).eq("id", l.id);
+        await supabase.from("activity_log").insert({
+          action_type: "system",
+          business_name: l.business_name,
+          lead_id: l.id,
+          detail: `No email available for ${l.business_name} — marked as phone-only`,
+          outcome: "warning",
+        });
+        phoneOnlyMarked++;
+        continue;
+      }
+      if (blockedByUnsub) continue;
+      // Stash resolved email back onto lead for later send step
+      (l as any)._resolvedEmail = dest;
+      candidates.push(l);
+    }
 
     // 5. Airtight dedupe — skip if any 2 of 3 match an existing contacted lead
     const dupSkipped: string[] = [];
@@ -268,8 +304,9 @@ Deno.serve(async (req) => {
         let sendStatus: "sent" | "blocked" | "failed" = "blocked";
         let resendId: string | undefined;
 
-        if (SENDING_ENABLED && RESEND && lead.email) {
-          resendId = await sendViaResend(RESEND, lead.email, subject, body, lead.id);
+        const destEmail = (lead as any)._resolvedEmail as string | undefined;
+        if (SENDING_ENABLED && RESEND && destEmail) {
+          resendId = await sendViaResend(RESEND, destEmail, subject, body, lead.id);
           sendStatus = "sent";
           sent++;
         } else {
@@ -298,7 +335,7 @@ Deno.serve(async (req) => {
           business_name: lead.business_name,
           lead_id: lead.id,
           detail: sendStatus === "sent"
-            ? `daily outreach sent to ${lead.email} (resend_id=${resendId ?? "n/a"})`
+            ? `daily outreach sent to ${(lead as any)._resolvedEmail} (resend_id=${resendId ?? "n/a"})`
             : `daily outreach DRAFT generated (sending blocked — verify Resend domain)`,
           outcome: sendStatus === "sent" ? "success" : "warning",
         });

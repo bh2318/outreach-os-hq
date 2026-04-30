@@ -11,8 +11,21 @@ const corsHeaders = {
 };
 
 const SENDING_ENABLED = false; // flip to true once a Resend domain is verified
-const TEST_RECIPIENT = "b.hemminger18@gmail.com";
 const REPLY_TO = "b.h.weboutreach@gmail.com";
+
+function resolveOutreachEmail(email: string | null, websiteUrl: string | null): string | null {
+  if (email && email.trim()) return email.trim();
+  const url = (websiteUrl ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    if (!host || !host.includes(".")) return null;
+    return `contact@${host}`;
+  } catch {
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -31,10 +44,41 @@ Deno.serve(async (req) => {
 
     const { data: lead } = await supabase
       .from("leads")
-      .select("id,business_name,outreach_count")
+      .select("id,business_name,outreach_count,email,website_url")
       .eq("id", leadId)
       .single();
     if (!lead) throw new Error("lead not found");
+
+    // If this lead has any reply on file, never send a follow-up.
+    const { count: replyCount } = await supabase
+      .from("replies")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", leadId);
+    if ((replyCount ?? 0) > 0) {
+      // Make sure they're out of the queue
+      await supabase.from("followup_queue").update({ sent: true, sent_at: new Date().toISOString() })
+        .eq("lead_id", leadId).eq("sent", false);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "lead_replied", leadId }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const destEmail = resolveOutreachEmail((lead as any).email ?? null, (lead as any).website_url ?? null);
+    if (!destEmail) {
+      await supabase.from("leads").update({ status: "phone_only" }).eq("id", leadId);
+      await supabase.from("activity_log").insert({
+        action_type: "system",
+        business_name: lead.business_name,
+        lead_id: leadId,
+        detail: `No email available for ${lead.business_name} — marked as phone-only`,
+        outcome: "warning",
+      });
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "phone_only", leadId }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const finalSubject = subject || `Following up — ${lead.business_name}`;
     const seq = (lead.outreach_count ?? 1) + 1;
@@ -46,7 +90,7 @@ Deno.serve(async (req) => {
         headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: FROM_ADDRESS,
-          to: [TEST_RECIPIENT],
+          to: [destEmail],
           reply_to: REPLY_TO,
           subject: finalSubject,
           text: draft,
