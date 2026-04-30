@@ -50,6 +50,8 @@ Deno.serve(async (req) => {
           reply_to: REPLY_TO,
           subject: finalSubject,
           text: draft,
+          tracking: { opens: true },
+          headers: { "X-Lead-Id": leadId },
         }),
       });
       const data = await resendRes.json().catch(() => ({}));
