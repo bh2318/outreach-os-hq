@@ -1,12 +1,17 @@
 // send-daily-outreach
-// Daily outreach scheduler. Sends up to MAX_PER_DAY cold emails.
-// Adds:
-//  - Pacific time window enforcement (settings.pacific_send_start/end)
-//  - Airtight dedupe: skip a lead if any combination of 2 of 3 fields
-//    (phone, business_name, address) matches an existing already-contacted lead
-//  - Priority order: no website > site_score > 80 > review_count > 50 > rest
-//  - Open tracking enabled on every Resend send
-// Controlled by settings.outreach_active. If false, returns immediately.
+// Unified outreach cycle. Fires every minute via pg_cron.
+// Gates inside the function:
+//  - settings.outreach_active must be true
+//  - settings.sending_enabled must be true
+//  - now must be within Pacific sending window
+//  - it must be at least settings.minutes_between_cycles since last_cycle_at
+//  - daily_email_cap must not be reached
+// Each cycle:
+//  1. Pull eligible "new" leads. If none, scrape a fresh WA city+niche.
+//  2. Process up to leads_per_cycle leads.
+//  3. Resolve email (lead.email > contact@<domain> > phone_only).
+//  4. Generate email via Claude haiku, send via Resend, log everything.
+//  5. Update last_cycle_at + last_cycle_completed_at on settings.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -16,15 +21,31 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SENDING_ENABLED = false;          // flip to true once Resend domain is verified
-const MAX_PER_DAY = 250;
-const WINDOW_HOURS = 12;
-const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY);
-const REPLY_TO = "b.h.weboutreach@gmail.com";
-const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
+const REPLY_TO = "weboutreach@bhsites.com";
 
-// Resolve the destination address for outreach.
-// Priority: 1) lead.email   2) contact@<domain-of-website_url>   3) null (phone-only)
+// Washington-state cities + business niches the scraper rotates through.
+const WA_CITIES = [
+  "Seattle, WA", "Tacoma, WA", "Spokane, WA", "Bellevue, WA", "Vancouver, WA",
+  "Kent, WA", "Everett, WA", "Renton, WA", "Yakima, WA", "Federal Way, WA",
+  "Kirkland, WA", "Bellingham, WA", "Auburn, WA", "Pasco, WA", "Marysville, WA",
+  "Lakewood, WA", "Redmond, WA", "Shoreline, WA", "Olympia, WA", "Richland, WA",
+  "Kennewick, WA", "Sammamish, WA", "Burien, WA", "Bothell, WA", "Edmonds, WA",
+  "Puyallup, WA", "Lynnwood, WA", "Bremerton, WA", "Issaquah, WA", "Wenatchee, WA",
+];
+const NICHES = [
+  "plumber", "electrician", "roofer", "landscaper", "hvac contractor",
+  "auto repair shop", "house painter", "general contractor", "pest control",
+  "carpet cleaner", "window cleaner", "fence contractor", "concrete contractor",
+  "tree service", "appliance repair", "locksmith", "moving company",
+  "junk removal", "pressure washing", "handyman",
+];
+
+function pickCityAndNiche(seed: number): { city: string; niche: string } {
+  const c = WA_CITIES[seed % WA_CITIES.length];
+  const n = NICHES[Math.floor(seed / WA_CITIES.length) % NICHES.length];
+  return { city: c, niche: n };
+}
+
 function resolveOutreachEmail(lead: { email: string | null; website_url: string | null }): string | null {
   if (lead.email && lead.email.trim()) return lead.email.trim();
   const url = (lead.website_url ?? "").trim();
@@ -51,7 +72,6 @@ interface Lead {
   niche: string | null;
   city: string | null;
   state: string | null;
-  county: string | null;
   website_url: string | null;
   rating: number | null;
   review_count: number | null;
@@ -77,13 +97,11 @@ async function generateEmail(anthropic: string, lead: Lead): Promise<{ subject: 
   const userMsg = `business_name: ${lead.business_name}
 niche: ${lead.niche ?? "local business"}
 city: ${lead.city ?? ""}
-state: ${lead.state ?? ""}
 has_website: ${lead.website_url ? "yes" : "no"}
 rating: ${lead.rating ?? "n/a"}
 review_count: ${lead.review_count ?? 0}
 
 Write the cold email now.`;
-
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -104,7 +122,7 @@ Write the cold email now.`;
   return parseSubjectAndBody(text, lead.business_name);
 }
 
-async function sendViaResend(resendKey: string, to: string, subject: string, body: string, leadId: string) {
+async function sendViaResend(resendKey: string, fromAddress: string, to: string, subject: string, body: string, leadId: string) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -112,7 +130,7 @@ async function sendViaResend(resendKey: string, to: string, subject: string, bod
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: FROM_ADDRESS,
+      from: fromAddress,
       to: [to],
       reply_to: REPLY_TO,
       subject,
@@ -126,10 +144,7 @@ async function sendViaResend(resendKey: string, to: string, subject: string, bod
   return json.id as string | undefined;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 function getPacificHHMM(): string {
-  // Format current time in America/Los_Angeles as HH:MM (24h).
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     hour: "2-digit",
@@ -143,18 +158,22 @@ function getPacificHHMM(): string {
 }
 
 function inWindow(nowHHMM: string, start: string, end: string): boolean {
-  // Compare lex string HH:MM
   const s = start.slice(0, 5);
   const e = end.slice(0, 5);
   return nowHHMM >= s && nowHHMM <= e;
 }
 
-function norm(s: string | null | undefined): string {
-  return (s ?? "").toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s]/g, "").trim();
-}
-
-function normPhone(s: string | null | undefined): string {
-  return (s ?? "").replace(/\D/g, "");
+async function logActivity(
+  supabase: any,
+  args: { action_type: string; business_name?: string | null; lead_id?: string | null; detail: string; outcome?: string },
+) {
+  await supabase.from("activity_log").insert({
+    action_type: args.action_type,
+    business_name: args.business_name ?? null,
+    lead_id: args.lead_id ?? null,
+    detail: args.detail,
+    outcome: args.outcome ?? "success",
+  });
 }
 
 Deno.serve(async (req) => {
@@ -165,214 +184,211 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANTHROPIC = Deno.env.get("ANTHROPIC_API_KEY");
     const RESEND = Deno.env.get("RESEND_API_KEY");
+    const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL");
     if (!ANTHROPIC) throw new Error("ANTHROPIC_API_KEY not configured");
+    if (!RESEND) throw new Error("RESEND_API_KEY not configured");
+    if (!FROM_EMAIL) throw new Error("RESEND_FROM_EMAIL not configured");
+    const FROM_ADDRESS = `Brad Hemminger <${FROM_EMAIL}>`;
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // 1. Master switch + sending hours
+    // 1. Read settings (the source of truth for every gate)
     const { data: settings } = await supabase
       .from("settings")
-      .select("outreach_active, pacific_send_start, pacific_send_end, leads_per_cycle")
+      .select("outreach_active, sending_enabled, pacific_send_start, pacific_send_end, leads_per_cycle, minutes_between_cycles, daily_email_cap, last_cycle_at")
       .eq("id", 1)
       .maybeSingle();
-    const LEADS_PER_CYCLE = Math.max(1, Math.min(10, Number((settings as any)?.leads_per_cycle ?? 1)));
+
     if (!settings?.outreach_active) {
-      return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: "outreach_active=false" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ skipped: true, reason: "outreach_active=false" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+    if (!(settings as any).sending_enabled) {
+      return new Response(JSON.stringify({ skipped: true, reason: "sending_disabled" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const minutesBetween = Math.max(1, Math.min(60, Number((settings as any).minutes_between_cycles ?? 5)));
+    const leadsPerCycle = Math.max(1, Math.min(20, Number((settings as any).leads_per_cycle ?? 1)));
+    const dailyCap = Math.max(1, Math.min(1500, Number((settings as any).daily_email_cap ?? 288)));
+
+    // Interval gate
+    const lastCycleAt = (settings as any).last_cycle_at as string | null;
+    if (lastCycleAt) {
+      const elapsed = Date.now() - new Date(lastCycleAt).getTime();
+      const required = minutesBetween * 60 * 1000;
+      if (elapsed < required - 5000) {
+        return new Response(JSON.stringify({ skipped: true, reason: "interval_gate", elapsedMs: elapsed, requiredMs: required }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Sending window gate
     const nowPacific = getPacificHHMM();
     const startTime = (settings as any).pacific_send_start ?? "08:00:00";
     const endTime = (settings as any).pacific_send_end ?? "18:00:00";
     if (!inWindow(nowPacific, startTime, endTime)) {
-      await supabase.from("activity_log").insert({
+      await logActivity(supabase, {
         action_type: "system",
-        detail: `Outreach paused — outside sending hours (Pacific ${nowPacific}, window ${startTime}-${endTime})`,
+        detail: `Outside sending window — cycle skipped (Pacific ${nowPacific}, window ${startTime.slice(0, 5)}–${endTime.slice(0, 5)})`,
         outcome: "warning",
       });
-      return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: "outside_window", nowPacific }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    // 2. Fetch already-contacted leads for dedupe
-    const { data: contacted } = await supabase
-      .from("leads")
-      .select("business_name, phone, address")
-      .gt("outreach_count", 0);
-    const contactedKeys = (contacted ?? []).map((c) => ({
-      name: norm(c.business_name as string),
-      phone: normPhone(c.phone as string),
-      addr: norm(c.address as string),
-    }));
-
-    // 3. Pull unsubscribed list
-    const { data: blacklist } = await supabase.from("unsubscribed").select("email");
-    const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
-
-    // 4. Pull eligible candidates (not yet contacted, not unsubscribed)
-    const { data: leadsRaw, error: leadsErr } = await supabase
-      .from("leads")
-      .select("id,business_name,email,phone,address,niche,city,state,county,website_url,rating,review_count,site_score,status")
-      .eq("status", "new")
-      .eq("outreach_count", 0)
-      .eq("archived", false)
-      .limit(MAX_PER_DAY * 3);
-    if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
-
-    // Phone-only pass: any lead with no resolvable email gets marked phone-only and skipped.
-    const candidatesPre = (leadsRaw ?? []) as Lead[];
-    const candidates: Lead[] = [];
-    let phoneOnlyMarked = 0;
-    for (const l of candidatesPre) {
-      const dest = resolveOutreachEmail(l);
-      const blockedByUnsub = dest && blockedEmails.has(dest.toLowerCase());
-      if (!dest) {
-        await supabase.from("leads").update({ status: "phone_only" }).eq("id", l.id);
-        await supabase.from("activity_log").insert({
-          action_type: "system",
-          business_name: l.business_name,
-          lead_id: l.id,
-          detail: `No email available for ${l.business_name} — marked as phone-only`,
-          outcome: "warning",
-        });
-        phoneOnlyMarked++;
-        continue;
-      }
-      if (blockedByUnsub) continue;
-      // Stash resolved email back onto lead for later send step
-      (l as any)._resolvedEmail = dest;
-      candidates.push(l);
-    }
-
-    // 5. Airtight dedupe — skip if any 2 of 3 match an existing contacted lead
-    const dupSkipped: string[] = [];
-    const eligible: Lead[] = [];
-    for (const cand of candidates) {
-      const cn = norm(cand.business_name);
-      const cp = normPhone(cand.phone);
-      const ca = norm(cand.address);
-      const isDup = contactedKeys.some((k) => {
-        const matches = [
-          cn && k.name && cn === k.name,
-          cp && k.phone && cp === k.phone,
-          ca && k.addr && ca === k.addr,
-        ].filter(Boolean).length;
-        return matches >= 2;
+      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() } as any).eq("id", 1);
+      return new Response(JSON.stringify({ skipped: true, reason: "outside_window" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-      if (isDup) {
-        dupSkipped.push(cand.business_name);
-        await supabase.from("activity_log").insert({
+    }
+
+    // Daily cap gate
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const { count: sentToday } = await supabase
+      .from("outreach_emails")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "sent")
+      .gte("sent_at", startOfDay.toISOString());
+    if ((sentToday ?? 0) >= dailyCap) {
+      await logActivity(supabase, {
+        action_type: "system",
+        detail: `Daily cap reached — ${sentToday}/${dailyCap} emails sent today. No further outreach until tomorrow.`,
+        outcome: "warning",
+      });
+      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() } as any).eq("id", 1);
+      return new Response(JSON.stringify({ skipped: true, reason: "daily_cap_reached", sentToday, dailyCap }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const remainingCap = dailyCap - (sentToday ?? 0);
+    const cycleLimit = Math.min(leadsPerCycle, remainingCap);
+
+    // Mark cycle started
+    const cycleStartedAt = new Date().toISOString();
+    await supabase.from("settings").update({ last_cycle_at: cycleStartedAt } as any).eq("id", 1);
+
+    // 2. Look for "new" leads
+    let { data: leadsRaw } = await supabase
+      .from("leads")
+      .select("id,business_name,email,phone,address,niche,city,state,website_url,rating,review_count,site_score,status")
+      .eq("status", "new")
+      .eq("archived", false)
+      .order("site_score", { ascending: false })
+      .limit(cycleLimit);
+
+    // If empty, scrape a fresh WA city+niche
+    if (!leadsRaw || leadsRaw.length === 0) {
+      const seed = Math.floor(Date.now() / (60 * 1000));
+      const { city, niche } = pickCityAndNiche(seed);
+      await logActivity(supabase, {
+        action_type: "scraper",
+        detail: `Cycle started — searching ${niche} in ${city}`,
+        outcome: "success",
+      });
+      try {
+        const { data: scrapeRes, error: scrapeErr } = await supabase.functions.invoke("scrape-places", {
+          body: { niche, city },
+        });
+        if (scrapeErr) throw scrapeErr;
+        const found = (scrapeRes as any)?.businesses?.length ?? 0;
+        await logActivity(supabase, {
+          action_type: "scraper",
+          detail: `Found ${found} qualified ${niche} businesses in ${city}`,
+          outcome: "success",
+        });
+      } catch (e) {
+        await logActivity(supabase, {
           action_type: "system",
-          business_name: cand.business_name,
-          lead_id: cand.id,
-          detail: "Duplicate skipped — matches existing contacted lead on phone/name/address",
+          detail: `Scrape failed for ${niche} in ${city}: ${e instanceof Error ? e.message : String(e)}`,
+          outcome: "failed",
+        });
+      }
+      const refetch = await supabase
+        .from("leads")
+        .select("id,business_name,email,phone,address,niche,city,state,website_url,rating,review_count,site_score,status")
+        .eq("status", "new")
+        .eq("archived", false)
+        .order("site_score", { ascending: false })
+        .limit(cycleLimit);
+      leadsRaw = refetch.data;
+    } else {
+      await logActivity(supabase, {
+        action_type: "scraper",
+        detail: `Cycle started — ${leadsRaw.length} qualified lead${leadsRaw.length === 1 ? "" : "s"} ready`,
+        outcome: "success",
+      });
+    }
+
+    const leads = (leadsRaw ?? []) as Lead[];
+    let sent = 0;
+    let phoneOnly = 0;
+    let failed = 0;
+
+    for (const lead of leads) {
+      const dest = resolveOutreachEmail(lead);
+      if (!dest) {
+        await supabase.from("leads").update({ status: "phone_only" }).eq("id", lead.id);
+        await logActivity(supabase, {
+          action_type: "system",
+          business_name: lead.business_name,
+          lead_id: lead.id,
+          detail: `Phone-only lead — ${lead.business_name} (${lead.phone ?? "no phone"}) has no email or website`,
           outcome: "warning",
         });
+        phoneOnly++;
         continue;
       }
-      eligible.push(cand);
-    }
-
-    // 6. Priority sort: no-website first, then site_score>80, then review_count>50, then rest
-    function priorityRank(l: Lead): number {
-      if (!l.website_url) return 0;
-      if ((l.site_score ?? 0) > 80) return 1;
-      if ((l.review_count ?? 0) > 50) return 2;
-      return 3;
-    }
-    eligible.sort((a, b) => priorityRank(a) - priorityRank(b));
-    const perCycleCap = Math.min(LEADS_PER_CYCLE, MAX_PER_DAY);
-    const leads = eligible.slice(0, perCycleCap);
-
-    if (!leads.length) {
-      return new Response(
-        JSON.stringify({ success: true, processed: 0, dupSkipped: dupSkipped.length, message: "no eligible leads" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    let sent = 0;
-    let failed = 0;
-    let blocked = 0;
-
-    for (let i = 0; i < leads.length; i++) {
-      const lead = leads[i];
       try {
         const { subject, body } = await generateEmail(ANTHROPIC, lead);
-
-        let sendStatus: "sent" | "blocked" | "failed" = "blocked";
-        let resendId: string | undefined;
-
-        const destEmail = (lead as any)._resolvedEmail as string | undefined;
-        if (SENDING_ENABLED && RESEND && destEmail) {
-          resendId = await sendViaResend(RESEND, destEmail, subject, body, lead.id);
-          sendStatus = "sent";
-          sent++;
-        } else {
-          blocked++;
-        }
-
+        const resendId = await sendViaResend(RESEND, FROM_ADDRESS, dest, subject, body, lead.id);
         const now = new Date().toISOString();
         await supabase.from("outreach_emails").insert({
           lead_id: lead.id,
           sequence_number: 1,
           subject,
           body,
-          status: sendStatus,
-          sent_at: sendStatus === "sent" ? now : null,
+          status: "sent",
+          sent_at: now,
         });
-
-        if (sendStatus === "sent") {
-          await supabase
-            .from("leads")
-            .update({ status: "contacted", last_contacted: now, outreach_count: 1 })
-            .eq("id", lead.id);
-        }
-
-        await supabase.from("activity_log").insert({
-          action_type: sendStatus === "sent" ? "emailed" : "system",
+        await supabase
+          .from("leads")
+          .update({ status: "contacted", last_contacted: now, outreach_count: 1 })
+          .eq("id", lead.id);
+        await logActivity(supabase, {
+          action_type: "emailed",
           business_name: lead.business_name,
           lead_id: lead.id,
-          detail: sendStatus === "sent"
-            ? `daily outreach sent to ${(lead as any)._resolvedEmail} (resend_id=${resendId ?? "n/a"})`
-            : `daily outreach DRAFT generated (sending blocked — verify Resend domain)`,
-          outcome: sendStatus === "sent" ? "success" : "warning",
+          detail: `Outreach sent to ${dest} (${lead.business_name}, ${lead.city ?? "—"}) [resend:${resendId ?? "n/a"}]`,
+          outcome: "success",
         });
+        sent++;
       } catch (e) {
         failed++;
-        console.error(`[send-daily-outreach] lead ${lead.id} failed`, e);
-        await supabase.from("activity_log").insert({
+        await logActivity(supabase, {
           action_type: "system",
           business_name: lead.business_name,
           lead_id: lead.id,
-          detail: `daily outreach FAILED: ${e instanceof Error ? e.message : String(e)}`,
+          detail: `Outreach failed for ${lead.business_name}: ${e instanceof Error ? e.message : String(e)}`,
           outcome: "failed",
         });
       }
-
-      if (i < leads.length - 1) await sleep(SPACING_MS);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        eligible: leads.length,
-        sent,
-        blocked,
-        failed,
-        dupSkipped: dupSkipped.length,
-        sending_enabled: SENDING_ENABLED,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const completedAt = new Date().toISOString();
+    await supabase.from("settings").update({ last_cycle_completed_at: completedAt } as any).eq("id", 1);
+    await logActivity(supabase, {
+      action_type: "scraper",
+      detail: `Cycle complete — ${sent} sent, ${phoneOnly} phone-only, ${failed} failed`,
+      outcome: "success",
+    });
+
+    return new Response(JSON.stringify({ success: true, sent, phoneOnly, failed, processed: leads.length }), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     console.error("[send-daily-outreach] fatal", e);
-    return new Response(
-      JSON.stringify({ success: false, error: e instanceof Error ? e.message : String(e) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ success: false, error: e instanceof Error ? e.message : String(e) }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
