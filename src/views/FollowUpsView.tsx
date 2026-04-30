@@ -111,6 +111,7 @@ export function FollowUpsView() {
       toast.error(e?.message ?? "Failed to send");
     } finally {
       setBusyId(null);
+    }
   }
 
   async function archiveRow(row: FollowupRow) {
@@ -127,7 +128,6 @@ export function FollowUpsView() {
     } finally {
       setBusyId(null);
     }
-  }
   }
 
   return (
