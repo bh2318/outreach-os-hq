@@ -628,7 +628,9 @@ function Workspace({ lead }: { lead: Lead }) {
           >
             {isGenerating ? (
               <div className="flex flex-col items-center gap-4 py-16 px-6 w-full max-w-md">
-                <div className="text-[12px] text-muted-foreground">Building your mock website</div>
+                <div className="text-[12px] text-muted-foreground">
+                  Building your mock website — this usually takes about 30 seconds
+                </div>
                 <div className="w-full h-1.5 rounded-full bg-secondary overflow-hidden">
                   <div
                     className="h-full bg-primary-hover rounded-full"
