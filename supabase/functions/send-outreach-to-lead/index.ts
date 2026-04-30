@@ -1,8 +1,10 @@
 // send-outreach-to-lead
-// Generates one outreach email via Claude haiku and sends it via Resend.
-// For test purposes: from = onboarding@resend.dev, reply-to = b.h.weboutreach@gmail.com,
-// recipient = b.h.weboutreach@gmail.com (always — so test sends arrive in the outreach inbox).
-// Logs the sent email to outreach_emails linked to the lead_id.
+// Generates one outreach email via Claude haiku and sends it via Resend
+// to the real business email. Routing priority:
+//   1) lead.email
+//   2) contact@<domain> derived from lead.website_url
+//   3) no email available -> mark lead phone_only, log skip, do not send
+// Reply-to is the operator outreach inbox.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -12,11 +14,21 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Resend sandbox mode (no verified domain) only allows sending to the
-// account owner's address. Route the test email there, but set reply_to
-// to the outreach inbox so replies still land in the right Gmail account.
-const TEST_RECIPIENT = "b.hemminger18@gmail.com";
 const REPLY_TO = "b.h.weboutreach@gmail.com";
+
+function resolveOutreachEmail(email: string | null, websiteUrl: string | null): string | null {
+  if (email && email.trim()) return email.trim();
+  const url = (websiteUrl ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    if (!host || !host.includes(".")) return null;
+    return `contact@${host}`;
+  } catch {
+    return null;
+  }
+}
 
 const PROMPT_SYSTEM =
   "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Immediately before the sign off, on its own line, include exactly this sentence: Quick question — what is the single most important thing your website needs to do for your business? Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
