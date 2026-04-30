@@ -251,7 +251,48 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
-    // Step 2 — STOP detection (highest priority — before classification).
+    // Step 1.5 — Duplicate reply protection.
+    // If a reply from this exact email arrived in the last 24h, append to that
+    // reply card (under a "Follow-up message received" label) instead of creating a new one.
+    const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentDup } = await supabase
+      .from("replies")
+      .select("id, body")
+      .eq("lead_id", lead.id)
+      .ilike("from_email", from)
+      .gte("received_at", cutoff24h)
+      .order("received_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recentDup?.id) {
+      const appended = `${recentDup.body ?? ""}\n\n--- Follow-up message received ${now} ---\n${body}`;
+      await supabase.from("replies").update({ body: appended }).eq("id", recentDup.id);
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "Follow-up message appended to existing reply (within 24h)",
+        outcome: "success",
+      });
+      return ok({ status: "success", classification: "DUPLICATE_APPENDED", lead_id: lead.id });
+    }
+
+    // Step 1.6 — Compute minutes between outreach send and this reply.
+    let replyMinutes: number | null = null;
+    {
+      const { data: lastSent } = await supabase
+        .from("outreach_emails")
+        .select("sent_at")
+        .eq("lead_id", lead.id)
+        .not("sent_at", "is", null)
+        .order("sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastSent?.sent_at) {
+        replyMinutes = Math.max(0, Math.round((Date.now() - new Date(lastSent.sent_at).getTime()) / 60000));
+      }
+    }
+
     const trimmedBody = (body || "").trim();
     const isStop = /\bstop\b/i.test(trimmedBody) && trimmedBody.length < 80;
     if (isStop) {
