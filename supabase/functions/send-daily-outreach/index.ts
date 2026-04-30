@@ -284,7 +284,8 @@ Deno.serve(async (req) => {
       return 3;
     }
     eligible.sort((a, b) => priorityRank(a) - priorityRank(b));
-    const leads = eligible.slice(0, MAX_PER_DAY);
+    const perCycleCap = Math.min(LEADS_PER_CYCLE, MAX_PER_DAY);
+    const leads = eligible.slice(0, perCycleCap);
 
     if (!leads.length) {
       return new Response(
