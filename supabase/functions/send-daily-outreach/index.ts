@@ -1,12 +1,11 @@
 // send-daily-outreach
-// Daily outreach scheduler. Sends up to 250 cold emails to leads with status='new'
-// and outreach_count=0, spaced ~2.88 minutes apart across a 12-hour window.
-//
-// SAFETY: Sending is currently BLOCKED until a verified Resend domain is configured.
-// While blocked, the function still runs the loop, generates email drafts via Claude,
-// logs everything to outreach_emails / activity_log, and updates lead status — but
-// does NOT actually call Resend. Flip SENDING_ENABLED to true once a domain is live.
-//
+// Daily outreach scheduler. Sends up to MAX_PER_DAY cold emails.
+// Adds:
+//  - Pacific time window enforcement (settings.pacific_send_start/end)
+//  - Airtight dedupe: skip a lead if any combination of 2 of 3 fields
+//    (phone, business_name, address) matches an existing already-contacted lead
+//  - Priority order: no website > site_score > 80 > review_count > 50 > rest
+//  - Open tracking enabled on every Resend send
 // Controlled by settings.outreach_active. If false, returns immediately.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -17,11 +16,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// === Hard guards ===
 const SENDING_ENABLED = false;          // flip to true once Resend domain is verified
 const MAX_PER_DAY = 250;
 const WINDOW_HOURS = 12;
-const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY); // ~172800ms = 2.88 min
+const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY);
 const REPLY_TO = "b.h.weboutreach@gmail.com";
 const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
@@ -32,6 +30,8 @@ interface Lead {
   id: string;
   business_name: string;
   email: string | null;
+  phone: string | null;
+  address: string | null;
   niche: string | null;
   city: string | null;
   state: string | null;
@@ -39,6 +39,7 @@ interface Lead {
   website_url: string | null;
   rating: number | null;
   review_count: number | null;
+  site_score: number | null;
 }
 
 function parseSubjectAndBody(text: string, businessName: string) {
@@ -61,7 +62,6 @@ async function generateEmail(anthropic: string, lead: Lead): Promise<{ subject: 
 niche: ${lead.niche ?? "local business"}
 city: ${lead.city ?? ""}
 state: ${lead.state ?? ""}
-county: ${lead.county ?? lead.city ?? ""}
 has_website: ${lead.website_url ? "yes" : "no"}
 rating: ${lead.rating ?? "n/a"}
 review_count: ${lead.review_count ?? 0}
@@ -82,15 +82,13 @@ Write the cold email now.`;
       messages: [{ role: "user", content: userMsg }],
     }),
   });
-  if (!res.ok) {
-    throw new Error(`claude ${res.status}: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`claude ${res.status}: ${await res.text()}`);
   const d = await res.json();
   const text: string = (d?.content?.[0]?.text ?? "").trim();
   return parseSubjectAndBody(text, lead.business_name);
 }
 
-async function sendViaResend(resendKey: string, to: string, subject: string, body: string) {
+async function sendViaResend(resendKey: string, to: string, subject: string, body: string, leadId: string) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -103,6 +101,8 @@ async function sendViaResend(resendKey: string, to: string, subject: string, bod
       reply_to: REPLY_TO,
       subject,
       text: body,
+      tracking: { opens: true },
+      headers: { "X-Lead-Id": leadId },
     }),
   });
   const json = await res.json();
@@ -111,6 +111,35 @@ async function sendViaResend(resendKey: string, to: string, subject: string, bod
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function getPacificHHMM(): string {
+  // Format current time in America/Los_Angeles as HH:MM (24h).
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date());
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h}:${m}`;
+}
+
+function inWindow(nowHHMM: string, start: string, end: string): boolean {
+  // Compare lex string HH:MM
+  const s = start.slice(0, 5);
+  const e = end.slice(0, 5);
+  return nowHHMM >= s && nowHHMM <= e;
+}
+
+function norm(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s]/g, "").trim();
+}
+
+function normPhone(s: string | null | undefined): string {
+  return (s ?? "").replace(/\D/g, "");
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -124,40 +153,105 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // 1. Check master switch
-    const { data: settings, error: settingsErr } = await supabase
+    // 1. Master switch + sending hours
+    const { data: settings } = await supabase
       .from("settings")
-      .select("outreach_active")
+      .select("outreach_active, pacific_send_start, pacific_send_end")
       .eq("id", 1)
       .maybeSingle();
-    if (settingsErr) throw new Error(`settings read failed: ${settingsErr.message}`);
     if (!settings?.outreach_active) {
       return new Response(
         JSON.stringify({ success: true, skipped: true, reason: "outreach_active=false" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+    const nowPacific = getPacificHHMM();
+    const startTime = (settings as any).pacific_send_start ?? "08:00:00";
+    const endTime = (settings as any).pacific_send_end ?? "18:00:00";
+    if (!inWindow(nowPacific, startTime, endTime)) {
+      await supabase.from("activity_log").insert({
+        action_type: "system",
+        detail: `Outreach paused — outside sending hours (Pacific ${nowPacific}, window ${startTime}-${endTime})`,
+        outcome: "warning",
+      });
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "outside_window", nowPacific }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-    // 2. Pull eligible leads (status=new, outreach_count=0, has email, not unsubscribed)
+    // 2. Fetch already-contacted leads for dedupe
+    const { data: contacted } = await supabase
+      .from("leads")
+      .select("business_name, phone, address")
+      .gt("outreach_count", 0);
+    const contactedKeys = (contacted ?? []).map((c) => ({
+      name: norm(c.business_name as string),
+      phone: normPhone(c.phone as string),
+      addr: norm(c.address as string),
+    }));
+
+    // 3. Pull unsubscribed list
     const { data: blacklist } = await supabase.from("unsubscribed").select("email");
     const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
 
+    // 4. Pull eligible candidates (not yet contacted, not unsubscribed, has email)
     const { data: leadsRaw, error: leadsErr } = await supabase
       .from("leads")
-      .select("id,business_name,email,niche,city,state,county,website_url,rating,review_count,status")
+      .select("id,business_name,email,phone,address,niche,city,state,county,website_url,rating,review_count,site_score,status")
       .eq("status", "new")
       .eq("outreach_count", 0)
+      .eq("archived", false)
       .not("email", "is", null)
-      .order("created_at", { ascending: true })
-      .limit(MAX_PER_DAY);
+      .limit(MAX_PER_DAY * 3);
     if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
-    const leads = (leadsRaw ?? []).filter(
-      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
-    );
 
-    if (!leads || leads.length === 0) {
+    const candidates = (leadsRaw ?? []).filter(
+      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
+    ) as Lead[];
+
+    // 5. Airtight dedupe — skip if any 2 of 3 match an existing contacted lead
+    const dupSkipped: string[] = [];
+    const eligible: Lead[] = [];
+    for (const cand of candidates) {
+      const cn = norm(cand.business_name);
+      const cp = normPhone(cand.phone);
+      const ca = norm(cand.address);
+      const isDup = contactedKeys.some((k) => {
+        const matches = [
+          cn && k.name && cn === k.name,
+          cp && k.phone && cp === k.phone,
+          ca && k.addr && ca === k.addr,
+        ].filter(Boolean).length;
+        return matches >= 2;
+      });
+      if (isDup) {
+        dupSkipped.push(cand.business_name);
+        await supabase.from("activity_log").insert({
+          action_type: "system",
+          business_name: cand.business_name,
+          lead_id: cand.id,
+          detail: "Duplicate skipped — matches existing contacted lead on phone/name/address",
+          outcome: "warning",
+        });
+        continue;
+      }
+      eligible.push(cand);
+    }
+
+    // 6. Priority sort: no-website first, then site_score>80, then review_count>50, then rest
+    function priorityRank(l: Lead): number {
+      if (!l.website_url) return 0;
+      if ((l.site_score ?? 0) > 80) return 1;
+      if ((l.review_count ?? 0) > 50) return 2;
+      return 3;
+    }
+    eligible.sort((a, b) => priorityRank(a) - priorityRank(b));
+    const leads = eligible.slice(0, MAX_PER_DAY);
+
+    if (!leads.length) {
       return new Response(
-        JSON.stringify({ success: true, processed: 0, message: "no eligible leads" }),
+        JSON.stringify({ success: true, processed: 0, dupSkipped: dupSkipped.length, message: "no eligible leads" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -167,7 +261,7 @@ Deno.serve(async (req) => {
     let blocked = 0;
 
     for (let i = 0; i < leads.length; i++) {
-      const lead = leads[i] as Lead;
+      const lead = leads[i];
       try {
         const { subject, body } = await generateEmail(ANTHROPIC, lead);
 
@@ -175,7 +269,7 @@ Deno.serve(async (req) => {
         let resendId: string | undefined;
 
         if (SENDING_ENABLED && RESEND && lead.email) {
-          resendId = await sendViaResend(RESEND, lead.email, subject, body);
+          resendId = await sendViaResend(RESEND, lead.email, subject, body, lead.id);
           sendStatus = "sent";
           sent++;
         } else {
@@ -220,7 +314,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Pace sends across the 12-hour window. Skip the wait on the final iteration.
       if (i < leads.length - 1) await sleep(SPACING_MS);
     }
 
@@ -231,6 +324,7 @@ Deno.serve(async (req) => {
         sent,
         blocked,
         failed,
+        dupSkipped: dupSkipped.length,
         sending_enabled: SENDING_ENABLED,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
