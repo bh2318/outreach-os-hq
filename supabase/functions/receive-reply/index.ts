@@ -247,7 +247,44 @@ Deno.serve(async (req) => {
       return ok({ status: "success", message: "no matching lead found", sender: from });
     }
 
-    // Step 2 — classify
+    // Step 2 — STOP detection (highest priority — before classification).
+    const trimmedBody = (body || "").trim();
+    const isStop = /\bstop\b/i.test(trimmedBody) && trimmedBody.length < 80;
+    if (isStop) {
+      console.log(`[receive-reply] STOP detected for ${lead.business_name}`);
+      await supabase.from("unsubscribed").upsert(
+        { email: from, lead_id: lead.id, reason: "replied STOP" },
+        { onConflict: "email" },
+      );
+      await supabase.from("leads").update({ status: "unsubscribed" }).eq("id", lead.id);
+      await supabase.from("replies").insert({
+        lead_id: lead.id,
+        from_email: from,
+        subject: subject ?? "",
+        body,
+        received_at: now ?? new Date().toISOString(),
+        intent: "unsubscribe",
+        classified_at: new Date().toISOString(),
+        confidence: 1.0,
+        actioned: true,
+      });
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "lead replied STOP — added to unsubscribed blacklist",
+        outcome: "warning",
+      });
+      return ok({ status: "success", classification: "STOP", lead_id: lead.id });
+    }
+
+    // Step 3 — signed agreement detection (advances pipeline directly).
+    const lowerBody = trimmedBody.toLowerCase();
+    const looksLikeAgreement =
+      /(signed|signature|agreement|contract)/i.test(lowerBody) &&
+      /(attached|enclosed|here|sending|sent)/i.test(lowerBody);
+
+    // Step 4 — classify
     let classification: "YES" | "NO" | "MAYBE";
     try {
       classification = await classifyWithClaude(ANTHROPIC, body);
