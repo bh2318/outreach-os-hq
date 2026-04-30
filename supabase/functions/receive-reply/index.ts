@@ -344,12 +344,32 @@ Deno.serve(async (req) => {
         draft_response: draft || null,
         draft_subject: draftSubject,
       });
-      await supabase.from("leads").update({ status: "replied" }).eq("id", lead.id);
+      // Extract website goal + any client-supplied image URLs from the reply.
+      const websiteGoal = await extractGoalWithClaude(ANTHROPIC, body);
+      const clientAssetUrls = extractImageUrls(body);
+      const clientAssets = clientAssetUrls.map((u) => ({ url: u, source: "client_reply" }));
+
+      await supabase
+        .from("leads")
+        .update({
+          status: "mock-requested",
+          website_goal: websiteGoal,
+          client_assets: clientAssets,
+        })
+        .eq("id", lead.id);
+
+      // Insert a mock_sites row so the Mock Studio picks this lead up immediately.
+      await supabase.from("mock_sites").insert({
+        lead_id: lead.id,
+        status: "not-generated",
+        requested_at: now,
+      });
+
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied YES — draft pre-generated and notification created",
+        detail: "lead replied YES — moved to Mock Studio",
         outcome: "success",
       });
     } else if (classification === "NO") {
