@@ -19,6 +19,9 @@ Deno.serve(async (req) => {
   try {
     const RESEND = Deno.env.get("RESEND_API_KEY");
     if (!RESEND) throw new Error("RESEND_API_KEY not configured");
+    const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL");
+    if (!FROM_EMAIL) throw new Error("RESEND_FROM_EMAIL not configured");
+    const FROM_ADDRESS = `Brad Hemminger <${FROM_EMAIL}>`;
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
