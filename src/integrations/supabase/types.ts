@@ -611,6 +611,7 @@ export type Database = {
           auto_followup: boolean
           calendly_connected: boolean
           claude_api_key: string | null
+          daily_email_cap: number
           daily_send_limit: number
           default_lead_volume: number
           excluded_niches: string[]
@@ -621,8 +622,11 @@ export type Database = {
           invoice_amount_cents: number
           invoice_business_name: string | null
           last_active_tab: string | null
+          last_cycle_at: string | null
+          last_cycle_completed_at: string | null
           leads_per_cycle: number
           min_site_score: number
+          minutes_between_cycles: number
           operator_city: string | null
           operator_name: string | null
           outreach_active: boolean
@@ -636,12 +640,14 @@ export type Database = {
           require_approval: boolean
           send_window_end: string
           send_window_start: string
+          sending_enabled: boolean
           stripe_connected: boolean
         }
         Insert: {
           auto_followup?: boolean
           calendly_connected?: boolean
           claude_api_key?: string | null
+          daily_email_cap?: number
           daily_send_limit?: number
           default_lead_volume?: number
           excluded_niches?: string[]
@@ -652,8 +658,11 @@ export type Database = {
           invoice_amount_cents?: number
           invoice_business_name?: string | null
           last_active_tab?: string | null
+          last_cycle_at?: string | null
+          last_cycle_completed_at?: string | null
           leads_per_cycle?: number
           min_site_score?: number
+          minutes_between_cycles?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
@@ -667,12 +676,14 @@ export type Database = {
           require_approval?: boolean
           send_window_end?: string
           send_window_start?: string
+          sending_enabled?: boolean
           stripe_connected?: boolean
         }
         Update: {
           auto_followup?: boolean
           calendly_connected?: boolean
           claude_api_key?: string | null
+          daily_email_cap?: number
           daily_send_limit?: number
           default_lead_volume?: number
           excluded_niches?: string[]
@@ -683,8 +694,11 @@ export type Database = {
           invoice_amount_cents?: number
           invoice_business_name?: string | null
           last_active_tab?: string | null
+          last_cycle_at?: string | null
+          last_cycle_completed_at?: string | null
           leads_per_cycle?: number
           min_site_score?: number
+          minutes_between_cycles?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
@@ -698,6 +712,7 @@ export type Database = {
           require_approval?: boolean
           send_window_end?: string
           send_window_start?: string
+          sending_enabled?: boolean
           stripe_connected?: boolean
         }
         Relationships: []
