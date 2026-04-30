@@ -94,7 +94,7 @@ const SYSTEM_PROMPT =
 
 // Hard-coded test recipient — DO NOT pull from settings/db. Always send test emails here.
 const RECIPIENT = "b.h.weboutreach@gmail.com";
-const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>";
+const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 const CLAUDE_MODELS = [
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-5-20250929",
