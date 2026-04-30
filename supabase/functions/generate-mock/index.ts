@@ -699,12 +699,14 @@ Deno.serve(async (req) => {
       action_type: "mock_generated",
       business_name: lead.business_name,
       lead_id: leadId,
-      detail: `Mock generated and uploaded: ${publicUrl}`,
-      outcome: "success",
+      detail: usedFallback
+        ? `Mock generated using fallback template (Claude unavailable): ${publicUrl}`
+        : `Mock generated and uploaded: ${publicUrl}`,
+      outcome: usedFallback ? "warning" : "success",
     });
 
     return new Response(
-      JSON.stringify({ success: true, preview_url: publicUrl, copy }),
+      JSON.stringify({ success: true, preview_url: publicUrl, copy, fallback: usedFallback }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
