@@ -39,6 +39,9 @@ Deno.serve(async (req) => {
     const RESEND = Deno.env.get("RESEND_API_KEY");
     if (!ANTHROPIC) throw new Error("ANTHROPIC_API_KEY not configured");
     if (!RESEND) throw new Error("RESEND_API_KEY not configured");
+    const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL");
+    if (!FROM_EMAIL) throw new Error("RESEND_FROM_EMAIL not configured");
+    const FROM_ADDRESS = `Brad Hemminger <${FROM_EMAIL}>`;
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
