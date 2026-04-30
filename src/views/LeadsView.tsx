@@ -60,6 +60,7 @@ function useAllLeads() {
       const { data, error } = await supabase
         .from("leads")
         .select("*")
+        .eq("archived", false)
         .order("created_at", { ascending: false })
         .limit(1000);
       if (error) throw error;
