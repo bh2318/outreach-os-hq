@@ -13,7 +13,7 @@ const corsHeaders = {
 
 const SENDING_ENABLED = false;
 const TO_ADDRESS = "b.hemminger18@gmail.com";
-const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>";
+const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
