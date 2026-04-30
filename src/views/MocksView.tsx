@@ -501,6 +501,41 @@ function Workspace({ lead }: { lead: Lead }) {
                 No specific goal provided
               </div>
             )}
+            {lead.website_goal != null && (
+              <div
+                className={cn(
+                  "text-[10px] mt-1 flex items-center justify-between gap-2",
+                  (lead.website_goal?.length ?? 0) > 200
+                    ? "text-status-amber-text"
+                    : "text-muted-foreground"
+                )}
+              >
+                <span>{lead.website_goal?.length ?? 0} / 200</span>
+                {(lead.website_goal?.length ?? 0) > 200 && (
+                  <span>Consider summarizing for best Claude results</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Additional Context — Optional */}
+          <div>
+            <div className="label-uppercase mb-1.5 flex items-center justify-between gap-2">
+              <span>Additional Context — Optional</span>
+              {noteSaved && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-status-green-text normal-case tracking-normal">
+                  <Check className="w-2.5 h-2.5" /> Saved
+                </span>
+              )}
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Anything specific you want Claude to focus on — a tone, an angle, a detail you noticed about this business."
+              className="input-base w-full text-[12px] leading-relaxed"
+              style={{ resize: "vertical" }}
+            />
           </div>
 
           {/* Stats */}
