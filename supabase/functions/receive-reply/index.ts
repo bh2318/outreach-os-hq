@@ -40,6 +40,48 @@ async function draftReplyWithClaude(apiKey: string, system: string, user: string
   }
 }
 
+const GOAL_PROMPT =
+  "Read this email reply from a small business owner. Extract a single concise sentence describing what they said they want their website to do for their business — for example get more calls, book appointments, show photos of past work, sell products, look more professional. Reply with ONLY that one sentence — no preamble, no quotes. If they did not mention any goal at all, reply with the single word NONE.";
+
+async function extractGoalWithClaude(apiKey: string, replyText: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 120,
+        system: GOAL_PROMPT,
+        messages: [{ role: "user", content: replyText }],
+      }),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const text = (d?.content?.[0]?.text ?? "").trim();
+    if (!text || text.toUpperCase() === "NONE") return null;
+    return text.replace(/^["']|["']$/g, "");
+  } catch {
+    return null;
+  }
+}
+
+function extractImageUrls(text: string): string[] {
+  if (!text) return [];
+  const urlRe = /https?:\/\/[^\s<>"')]+/gi;
+  const found = text.match(urlRe) ?? [];
+  const imgExt = /\.(jpe?g|png|gif|webp|bmp|tiff?)(\?[^\s]*)?$/i;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of found) {
+    const cleaned = u.replace(/[).,;]+$/, "");
+    if (imgExt.test(cleaned) && !seen.has(cleaned)) {
+      seen.add(cleaned);
+      out.push(cleaned);
+    }
+  }
+  return out.slice(0, 12);
+}
+
 function ok(body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status: 200,
