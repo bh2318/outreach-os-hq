@@ -82,14 +82,12 @@ export function PipelineView() {
               <div className="flex-1"><Badge tone={STAGE_TONE[d.stage] ?? "gray"}>{STAGE_LABEL[d.stage] ?? d.stage}</Badge></div>
               <div className="w-24 text-[11px] text-muted-foreground font-mono">{fmtMoney(d.estimated_value)}</div>
               <div className="w-24 text-[11px] text-muted-foreground">{daysSince(d.stage_entered_at)}d in stage</div>
-              <div className="w-32 text-right">
+              <div className="w-40 text-right flex items-center justify-end gap-1.5">
                 {d.stage === "building" && <button className="btn-primary" onClick={() => advance(d, "delivered", "Site review complete → delivered", "Marked delivered")}>Review site</button>}
                 {d.stage === "agreement_received" && <button className="btn-green" onClick={() => advance(d, "building", "Build started", "Build started")}>Start build</button>}
                 {d.stage === "mock_sent" && <button className="btn-ghost" onClick={() => advance(d, "proposal_sent", "Follow-up sent", "Follow-up logged")}>Follow up</button>}
                 {d.stage === "delivered" && <button className="btn-green" onClick={() => advance(d, "paid", "Marked paid", "Marked paid")}>Mark paid</button>}
-                {(d.stage === "contacted" || d.stage === "replied" || d.stage === "proposal_sent" || d.stage === "paid") && (
-                  <button className="btn-ghost">View lead</button>
-                )}
+                <button className="btn-ghost" onClick={() => archiveDeal(d)}>Archive</button>
               </div>
             </div>
           ))}
