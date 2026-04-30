@@ -51,7 +51,7 @@ type MockRow = {
   preview_url: string | null;
   generated_at: string | null;
   sent_at: string | null;
-  leads: Lead | null;
+  leads?: Lead | null;
 };
 
 type UnsplashImage = {
