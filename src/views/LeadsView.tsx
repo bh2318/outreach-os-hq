@@ -143,12 +143,24 @@ export function LeadsView() {
   }
 
   const queueCount = (data ?? []).filter((l) => !l.archived && l.status === "new").length;
+  const [addOpen, setAddOpen] = useState(false);
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
         <SectionLabel>All leads</SectionLabel>
-        <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
+          <button
+            onClick={() => setAddOpen(true)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium",
+              "bg-primary text-primary-foreground hover:bg-primary-hover"
+            )}
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Lead
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
