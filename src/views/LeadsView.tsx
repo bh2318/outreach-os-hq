@@ -103,7 +103,7 @@ export function LeadsView() {
     try {
       const { error } = await supabase
         .from("leads")
-        .update({ archived: true, status: "archived" })
+        .update({ archived: true, archived_at: new Date().toISOString() })
         .eq("id", lead.id);
       if (error) throw error;
       await logActivity({
