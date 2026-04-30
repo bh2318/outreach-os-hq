@@ -243,6 +243,37 @@ Deno.serve(async (req) => {
 
     // Step 3 — branch
     if (classification === "YES") {
+      // Fire-and-forget operator notification email via Resend
+      try {
+        const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+        const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL");
+        if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
+          const escapeHtml = (s: string) =>
+            s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const text = `${lead.business_name}\n\n${body}`;
+          const html = `<p>${escapeHtml(lead.business_name)}</p><pre style="font-family:inherit;white-space:pre-wrap;margin:0">${escapeHtml(body)}</pre>`;
+          const r = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: `Brad Hemminger <${RESEND_FROM_EMAIL}>`,
+              to: ["b.hemminger18@gmail.com"],
+              subject: "Outreach OS — New reply waiting for you",
+              text,
+              html,
+            }),
+          });
+          if (!r.ok) console.error("[receive-reply] operator notify failed", r.status, await r.text());
+        } else {
+          console.warn("[receive-reply] RESEND_API_KEY or RESEND_FROM_EMAIL missing — skipping operator notify");
+        }
+      } catch (e) {
+        console.error("[receive-reply] operator notify error", e);
+      }
+
       const draft = await draftReplyWithClaude(ANTHROPIC, YES_DRAFT_PROMPT, leadContext);
       const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("notifications").insert({
