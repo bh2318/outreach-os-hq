@@ -14,8 +14,10 @@ const corsHeaders = {
 const CLASSIFY_PROMPT =
   "Classify this email reply as YES NO or MAYBE. YES means the person is interested or wants to see more. NO means not interested or wants to stop. MAYBE means they asked a question or are unsure. Reply with one word only.";
 
-const YES_DRAFT_PROMPT =
-  "You are Brad Hemminger replying to a local business owner who just said yes. Warm, confident, already moving. First person throughout. Output the email body exactly as follows and nothing else. Body must be under 120 words total. Body text exactly: Hey, appreciate you getting back to me. I am already getting started on your free mock website and will have something over to you shortly worth looking at. In the meantime if you have a logo, any photos of your work, or websites you like the look of feel free to send them my way — anything helps. If not I have everything I need to put something solid together. Talk soon. Then a blank line, then sign off line one: Brad Hemminger. Then sign off line two exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never mention price. Never mention contract. Never mention timeline. Never use the words excited, thrilled, solution, transform, or potential.";
+const YES_FIXED_BODY = `Hey, appreciate you getting back to me. I am already getting started on your free mock website and will have something over to you shortly worth looking at. In the meantime if you have a logo, any photos of your work, or websites you like the look of feel free to send them my way — anything helps. If not I have everything I need to put something solid together. Talk soon.
+
+Brad Hemminger
+Reply STOP anytime — no hard feelings`;
 
 const MAYBE_DRAFT_PROMPT =
   "You are Brad Hemminger replying to a local business owner who replied with a question or hesitation. Warm, confident, no pressure. First person. Two short paragraphs maximum. Answer their question directly and plainly. End with: Reply STOP anytime — no hard feelings. Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never mention price. Never eager. Plain words.";
