@@ -335,7 +335,7 @@ Deno.serve(async (req) => {
           business_name: lead.business_name,
           lead_id: lead.id,
           detail: sendStatus === "sent"
-            ? `daily outreach sent to ${lead.email} (resend_id=${resendId ?? "n/a"})`
+            ? `daily outreach sent to ${(lead as any)._resolvedEmail} (resend_id=${resendId ?? "n/a"})`
             : `daily outreach DRAFT generated (sending blocked — verify Resend domain)`,
           outcome: sendStatus === "sent" ? "success" : "warning",
         });
