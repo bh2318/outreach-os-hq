@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 type Reply = any;
 
 type IntentMeta = {
-  group: "yes" | "maybe" | "call" | "contract" | "no";
+  group: "yes" | "maybe" | "call" | "contract" | "no" | "stop";
   tone: StatusTone;
   badge: string;
   instruction: string;
@@ -27,6 +27,13 @@ function intentMeta(r: Reply): IntentMeta {
   const body = (r.body ?? "").toLowerCase();
   const looksLikeContract = /signed|contract|agreement|sign/i.test(body) && r.lead_id;
 
+  if (intent === "unsubscribe") {
+    return {
+      group: "stop", tone: "gray", badge: "Unsubscribed",
+      instruction: "Unsubscribed — this contact has been removed from all outreach.",
+      sortKey: 5, draftFn: null, sendFn: "", hideDraft: true,
+    };
+  }
   if (intent === "call_request") {
     return {
       group: "call", tone: "red", badge: "Call requested",
@@ -36,28 +43,28 @@ function intentMeta(r: Reply): IntentMeta {
   }
   if (looksLikeContract && (intent === "interested" || intent === "needs_response")) {
     return {
-      group: "contract", tone: "green", badge: "Contract received",
-      instruction: "Build their site — contract signed, proceed to development.",
+      group: "contract", tone: "green", badge: "Agreement received",
+      instruction: "Agreement received — pipeline advanced. Build their site.",
       sortKey: 3, draftFn: null, sendFn: "send-yes-response",
     };
   }
   if (intent === "interested" || intent === "mock_request" || intent === "price_inquiry") {
     return {
       group: "yes", tone: "green", badge: "Interested",
-      instruction: "Send creative input request — ask for logo, photos, and design preferences.",
+      instruction: "Free mock website is being built — review and confirm the pre-drafted response below.",
       sortKey: 0, draftFn: "draft-yes-response", sendFn: "send-yes-response",
     };
   }
   if (intent === "needs_response" || intent === "unknown") {
     return {
       group: "maybe", tone: "blue", badge: "Question",
-      instruction: "Answer their question — draft addresses their specific question.",
+      instruction: "They have a question — review the pre-drafted response and confirm when ready.",
       sortKey: 1, draftFn: "draft-maybe-response", sendFn: "send-maybe-response",
     };
   }
   return {
     group: "no", tone: "gray", badge: "Not interested",
-    instruction: "No action needed — archived automatically.",
+    instruction: "",
     sortKey: 4, draftFn: null, sendFn: "", hideDraft: true,
   };
 }
@@ -205,7 +212,7 @@ function ReplyRow({ reply }: { reply: Reply }) {
 
       {/* Line 6 — buttons */}
       <div className="mt-3 flex items-center gap-2">
-        {m.group === "no" ? (
+        {m.group === "stop" ? null : m.group === "no" ? (
           <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
         ) : (
           <>

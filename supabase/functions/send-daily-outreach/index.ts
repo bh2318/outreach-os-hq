@@ -26,7 +26,7 @@ const REPLY_TO = "b.h.weboutreach@gmail.com";
 const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
 const PROMPT_SYSTEM =
-  "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Sign off: Brad Hemminger on one line, their county name followed by County on the next line pulled from the lead record county field, then exactly: Reply STOP anytime — no hard feelings. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
+  "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Immediately before the sign off, on its own line, include exactly this sentence: Quick question — what is the single most important thing your website needs to do for your business? Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
 
 interface Lead {
   id: string;
@@ -138,16 +138,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2. Pull eligible leads (status=new, outreach_count=0, has email)
-    const { data: leads, error: leadsErr } = await supabase
+    // 2. Pull eligible leads (status=new, outreach_count=0, has email, not unsubscribed)
+    const { data: blacklist } = await supabase.from("unsubscribed").select("email");
+    const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
+
+    const { data: leadsRaw, error: leadsErr } = await supabase
       .from("leads")
-      .select("id,business_name,email,niche,city,state,county,website_url,rating,review_count")
+      .select("id,business_name,email,niche,city,state,county,website_url,rating,review_count,status")
       .eq("status", "new")
       .eq("outreach_count", 0)
       .not("email", "is", null)
       .order("created_at", { ascending: true })
       .limit(MAX_PER_DAY);
     if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
+    const leads = (leadsRaw ?? []).filter(
+      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
+    );
 
     if (!leads || leads.length === 0) {
       return new Response(

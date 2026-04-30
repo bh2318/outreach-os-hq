@@ -1,18 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSettings } from "@/hooks/useData";
 import { SectionLabel } from "@/components/SectionLabel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const ROTATION_CATEGORIES = [
-  "plumber", "electrician", "roofer", "landscaper", "auto repair",
-  "dentist", "chiropractor", "hair salon", "barber", "restaurant",
-];
-const ROTATION_CITIES = [
-  "Aberdeen", "Hoquiam", "Olympia", "Tumwater", "Lacey",
-  "Centralia", "Chehalis", "Shelton", "Montesano", "Elma",
-];
 
 function useLiveStats() {
   return useQuery({
@@ -34,36 +25,6 @@ function useLiveStats() {
       };
     },
     refetchInterval: 10000,
-  });
-}
-
-function useRotationState() {
-  return useQuery({
-    queryKey: ["rotation-state"],
-    queryFn: async () => {
-      // Use total contacted count to derive a stable rotation pointer.
-      const { count } = await supabase.from("outreach_emails").select("id", { count: "exact", head: true });
-      const idx = count ?? 0;
-      const cat = ROTATION_CATEGORIES[idx % ROTATION_CATEGORIES.length];
-      const city = ROTATION_CITIES[Math.floor(idx / ROTATION_CATEGORIES.length) % ROTATION_CITIES.length];
-      const nextIdx = idx + 1;
-      const nextCat = ROTATION_CATEGORIES[nextIdx % ROTATION_CATEGORIES.length];
-      const nextCity = ROTATION_CITIES[Math.floor(nextIdx / ROTATION_CATEGORIES.length) % ROTATION_CITIES.length];
-      return { cat, city, nextCat, nextCity };
-    },
-    refetchInterval: 30000,
-  });
-}
-
-function useSecretsStatus() {
-  return useQuery({
-    queryKey: ["secrets-status"],
-    queryFn: async () => {
-      const { data } = await supabase.functions.invoke("send-test-email", { body: { _check_secrets: true } }).catch(() => ({ data: null }));
-      // Fallback: assume connected. Real list comes via Supabase secrets which we know exist.
-      return data ?? null;
-    },
-    enabled: false,
   });
 }
 
@@ -114,9 +75,22 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 export function SettingsView() {
   const { data } = useSettings();
   const { data: stats } = useLiveStats();
-  const { data: rot } = useRotationState();
   const [s, setS] = useState<any>(null);
-  useEffect(() => { if (data) setS({ ...data }); }, [data]);
+  useEffect(() => {
+    if (data) {
+      setS({
+        operator_name: data.operator_name || "Brad Hemminger",
+        reply_to_email: data.reply_to_email || "weboutreach@bhsites.com",
+        invoice_business_name: data.invoice_business_name || "Brad Hemminger",
+        invoice_amount_cents: (data as any).invoice_amount_cents ?? 50000,
+        payment_terms_days: data.payment_terms_days ?? 0,
+        payment_note: (data as any).payment_note || "",
+        min_site_score: data.min_site_score ?? 45,
+        outreach_active: !!data.outreach_active,
+        reply_pipeline_active: !!(data as any).reply_pipeline_active,
+      });
+    }
+  }, [data]);
 
   if (!s) return null;
   const update = (k: string, v: any) => setS({ ...s, [k]: v });
@@ -125,16 +99,15 @@ export function SettingsView() {
     const patch = {
       operator_name: s.operator_name,
       reply_to_email: s.reply_to_email,
-      min_site_score: s.min_site_score,
-      default_lead_volume: s.default_lead_volume,
       invoice_business_name: s.invoice_business_name,
-      invoice_address: s.invoice_address,
+      invoice_amount_cents: s.invoice_amount_cents,
       payment_terms_days: s.payment_terms_days,
-      payment_instructions: s.payment_instructions,
+      payment_note: s.payment_note,
+      min_site_score: s.min_site_score,
     };
-    const { error } = await supabase.from("settings").update(patch).eq("id", 1);
+    const { error } = await supabase.from("settings").update(patch as any).eq("id", 1);
     if (error) return toast.error(error.message);
-    toast.success("Settings saved");
+    toast.success("Settings saved", { duration: 3000 });
   };
 
   const toggleActive = async () => {
@@ -145,42 +118,44 @@ export function SettingsView() {
       update("outreach_active", !next);
       return toast.error(error.message);
     }
-    toast.success(next ? "System activated" : "System paused");
+    toast.success(next ? "System activated" : "System paused", { duration: 3000 });
   };
 
-  // Read-only secret status — these all exist in the project (see <secrets>).
-  const secretsKnown = {
-    anthropic: true,
-    googlePlaces: true,
-    resend: true,
-    gmailUser: true,
-    gmailAppPwd: true,
-    pipedream: true, // pipedream pings the receive-reply webhook; assumed wired
+  const toggleReplyPipeline = async () => {
+    const next = !s.reply_pipeline_active;
+    update("reply_pipeline_active", next);
+    const { error } = await supabase.from("settings").update({ reply_pipeline_active: next } as any).eq("id", 1);
+    if (error) {
+      update("reply_pipeline_active", !next);
+      return toast.error(error.message);
+    }
+    // Fire webhook in the background — non-blocking.
+    supabase.functions.invoke("toggle-reply-pipeline", { body: { active: next } }).catch(() => {});
+    toast.success(next ? "Reply pipeline activated" : "Reply pipeline paused", { duration: 3000 });
   };
+
+  const secretsKnown = {
+    anthropic: true, googlePlaces: true, resend: true,
+    gmailUser: true, gmailAppPwd: true, pipedream: true,
+  };
+
+  const showWarning = s.outreach_active && !s.reply_pipeline_active;
 
   return (
     <div className="space-y-4 pb-20">
-      {/* SECTION 1 — Operator profile */}
+      {/* Your profile */}
       <Section label="Your profile">
-        <Row label="Your name" hint="Used in every email sign-off">
-          <input
-            className="input-base w-[280px]"
-            value={s.operator_name ?? ""}
-            placeholder="Brad Hemminger"
-            onChange={(e) => update("operator_name", e.target.value)}
-          />
+        <Row label="Name on emails" hint="Used in every email sign-off">
+          <input className="input-base w-[280px]" value={s.operator_name ?? ""}
+            onChange={(e) => update("operator_name", e.target.value)} />
         </Row>
-        <Row label="Reply-to email" hint="Business owners reply to this address. Keep it pointed at your outreach Gmail.">
-          <input
-            className="input-base w-[280px]"
-            value={s.reply_to_email ?? ""}
-            placeholder="b.h.weboutreach@gmail.com"
-            onChange={(e) => update("reply_to_email", e.target.value)}
-          />
+        <Row label="Reply-to email" hint="Where business owner replies are sent">
+          <input className="input-base w-[280px]" value={s.reply_to_email ?? ""}
+            onChange={(e) => update("reply_to_email", e.target.value)} />
         </Row>
       </Section>
 
-      {/* SECTION 2 — System control */}
+      {/* Outreach system */}
       <Section label="Outreach system">
         <div className="py-3">
           <div className="flex items-start justify-between gap-4">
@@ -206,61 +181,48 @@ export function SettingsView() {
         </div>
       </Section>
 
-      {/* SECTION 3 — Lead targeting */}
+      {/* Warning banner */}
+      {showWarning && (
+        <div className="surface-card border-status-amber-text/40 bg-status-amber-fill/20">
+          <div className="text-[12px] text-status-amber-text py-1">
+            ⚠ Your outreach system is active but your reply pipeline is paused. Replies from businesses will not reach your app until the Reply Pipeline is turned on.
+          </div>
+        </div>
+      )}
+
+      {/* Reply Pipeline */}
+      <Section label="Reply Pipeline">
+        <div className="py-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-foreground">Reply Pipeline Active</div>
+              <div className="text-[11px] mt-1">
+                {s.reply_pipeline_active ? (
+                  <span className="text-status-green-text">● Pipeline active and monitoring inbox</span>
+                ) : (
+                  <span className="text-faint">○ Pipeline paused</span>
+                )}
+              </div>
+            </div>
+            <Toggle value={!!s.reply_pipeline_active} onChange={toggleReplyPipeline} />
+          </div>
+        </div>
+      </Section>
+
+      {/* Lead targeting (read-only) */}
       <Section label="Lead targeting">
-        <Row
-          label="Minimum site score to qualify"
-          hint="Businesses scoring at or below this number qualify. No-website businesses always qualify."
-        >
-          <input
-            type="number"
-            min={0}
-            max={100}
+        <div className="py-3 text-[12px] text-muted-foreground">
+          System is automatically rotating through all Washington state cities and business categories — no configuration needed.
+        </div>
+        <Row label="Minimum site score to qualify"
+          hint="Businesses scoring at or above this number qualify.">
+          <input type="number" min={0} max={100}
             className="input-base w-[100px] text-right font-mono"
             value={s.min_site_score ?? 45}
-            onChange={(e) => update("min_site_score", Number(e.target.value))}
-          />
-        </Row>
-        <Row
-          label="Prioritize no-website leads"
-          hint="Businesses with no website are contacted before those with poor websites."
-        >
-          <Toggle
-            value={s.prioritize_no_website ?? true}
-            onChange={(v) => update("prioritize_no_website", v)}
-          />
-        </Row>
-        <Row label="Search rotation status">
-          <div className="text-right">
-            <div className="text-[12px] font-mono text-foreground">
-              Current category: <span className="text-primary-fill-text">{rot?.cat ?? "—"}</span>
-            </div>
-            <div className="text-[12px] font-mono text-foreground mt-0.5">
-              Current city: <span className="text-primary-fill-text">{rot?.city ?? "—"}</span>
-            </div>
-            <div className="text-[10px] text-faint mt-1">
-              Next outreach cycle will target: {rot?.nextCat ?? "—"} in {rot?.nextCity ?? "—"}
-            </div>
-          </div>
-        </Row>
-        <Row
-          label="Leads per scraper run"
-          hint="At 1 lead per cycle and one cycle every 5 minutes, the system contacts 288 businesses per day."
-        >
-          <select
-            className="input-base w-[100px]"
-            value={s.default_lead_volume ?? 1}
-            onChange={(e) => update("default_lead_volume", Number(e.target.value))}
-          >
-            <option value={1}>1</option>
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-          </select>
+            onChange={(e) => update("min_site_score", Number(e.target.value))} />
         </Row>
         <div className="py-3 border-t border-border-faint">
-          <div className="text-[12px] text-foreground mb-2">Rating reference</div>
+          <div className="text-[12px] text-foreground mb-2">Scoring reference</div>
           <div className="rounded-md border border-border overflow-hidden">
             <table className="w-full text-[11px]">
               <thead>
@@ -286,13 +248,13 @@ export function SettingsView() {
               </tbody>
             </table>
           </div>
-          <div className="text-[10px] text-faint mt-2">
-            Leads scoring above the minimum threshold qualify for outreach.
+          <div className="text-[10px] text-faint mt-2 leading-relaxed">
+            Scores are calculated at time of scraping using publicly available signals only. Businesses with no website receive 100 points automatically and are always contacted first. All other signals are additive. A business must score above the minimum threshold to qualify for outreach. The same business will never be contacted twice regardless of score.
           </div>
         </div>
       </Section>
 
-      {/* SECTION 4 — System status */}
+      {/* System status */}
       <Section label="System status">
         {[
           { label: "Claude API", hint: "Used for email writing and reply classification", ok: secretsKnown.anthropic },
@@ -308,48 +270,42 @@ export function SettingsView() {
         ))}
       </Section>
 
-      {/* SECTION 5 — Invoice defaults */}
+      {/* Invoice defaults — exactly four fields */}
       <Section label="Invoice defaults">
-        <Row label="Business name">
-          <input
-            className="input-base w-[280px]"
+        <Row label="Name on invoices">
+          <input className="input-base w-[280px]"
             value={s.invoice_business_name ?? ""}
-            onChange={(e) => update("invoice_business_name", e.target.value)}
-          />
+            onChange={(e) => update("invoice_business_name", e.target.value)} />
         </Row>
-        <Row label="Business address">
-          <input
-            className="input-base w-[280px]"
-            value={s.invoice_address ?? ""}
-            onChange={(e) => update("invoice_address", e.target.value)}
-          />
+        <Row label="Default invoice amount">
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+            <input type="number" min={0}
+              className="input-base w-[140px] pl-5 text-right font-mono"
+              value={Math.round((s.invoice_amount_cents ?? 50000) / 100)}
+              onChange={(e) => update("invoice_amount_cents", Math.round(Number(e.target.value) * 100))} />
+          </div>
         </Row>
-        <Row label="Payment terms">
-          <select
-            className="input-base w-[140px]"
-            value={s.payment_terms_days ?? 14}
-            onChange={(e) => update("payment_terms_days", Number(e.target.value))}
-          >
-            <option value={7}>Net 7</option>
-            <option value={14}>Net 14</option>
-            <option value={30}>Net 30</option>
+        <Row label="Payment due">
+          <select className="input-base w-[180px]"
+            value={s.payment_terms_days ?? 0}
+            onChange={(e) => update("payment_terms_days", Number(e.target.value))}>
+            <option value={0}>Due on receipt</option>
+            <option value={3}>Within 3 days</option>
+            <option value={7}>Within 7 days</option>
           </select>
         </Row>
-        <Row label="Payment instructions">
-          <textarea
-            className="input-base w-[380px] min-h-[80px]"
-            placeholder="Where to send payment (e.g. bank transfer details, Stripe link, mailing address)"
-            value={s.payment_instructions ?? ""}
-            onChange={(e) => update("payment_instructions", e.target.value)}
-          />
+        <Row label="Payment note">
+          <input className="input-base w-[380px]"
+            placeholder="How you want to be paid — example: Send to my PayPal at email@example.com"
+            value={s.payment_note ?? ""}
+            onChange={(e) => update("payment_note", e.target.value)} />
         </Row>
       </Section>
 
       <div className="sticky bottom-0 bg-background pt-3">
-        <button
-          onClick={save}
-          className="w-full bg-primary hover:bg-primary-hover text-primary-foreground rounded-md py-2.5 text-[12px] font-medium transition-colors"
-        >
+        <button onClick={save}
+          className="w-full bg-primary hover:bg-primary-hover text-primary-foreground rounded-md py-2.5 text-[12px] font-medium transition-colors">
           Save settings
         </button>
       </div>

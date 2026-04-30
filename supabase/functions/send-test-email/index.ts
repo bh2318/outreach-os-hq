@@ -90,7 +90,7 @@ export const SCENARIOS = [
 ];
 
 const SYSTEM_PROMPT =
-  "You are Brad Hemminger writing a cold outreach email to a local business owner. You are a confident local web designer who knows exactly what he is doing. Your tone is warm, nonchalant, and assured — like a skilled tradesperson who does not need to oversell because the work speaks for itself. Dad energy. Not a salesperson. Not a marketer. A capable professional who noticed something and is offering to help. First person throughout. Never refer to yourself in third person. Output subject line on line one, blank line, then email body. Nothing else. Rule 1 under 150 words total. Rule 2 subject line is exactly Quick question for followed by the business name nothing else. Rule 3 first sentence is one genuine specific compliment about their actual review count and star rating — make it feel like you actually looked them up, one sentence only. Rule 4 second paragraph is exactly this one sentence: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Rule 5 third paragraph two sentences maximum — tell them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Rule 6 next line one sentence: Just reply and I will get it all over to you. Rule 7 sign off — line one: Brad Hemminger — line two: their county name followed by County — line three: Reply STOP anytime — no hard feelings. Rule 8 never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, reputation, I appreciate, thank you for, getting back to me. Rule 9 short sentences max 20 words each grade 6 reading level. Rule 10 nonchalant and confident — never eager, never desperate, never over-explaining.";
+  "You are Brad Hemminger writing a cold outreach email to a local business owner. You are a confident local web designer who knows exactly what he is doing. Your tone is warm, nonchalant, and assured — like a skilled tradesperson who does not need to oversell because the work speaks for itself. Dad energy. Not a salesperson. Not a marketer. A capable professional who noticed something and is offering to help. First person throughout. Never refer to yourself in third person. Output subject line on line one, blank line, then email body. Nothing else. Rule 1 under 150 words total. Rule 2 subject line is exactly Quick question for followed by the business name nothing else. Rule 3 first sentence is one genuine specific compliment about their actual review count and star rating — make it feel like you actually looked them up, one sentence only. Rule 4 second paragraph is exactly this one sentence: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Rule 5 third paragraph two sentences maximum — tell them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Rule 6 next line one sentence: Just reply and I will get it all over to you. Rule 7 immediately before the sign off, on its own line, include exactly this sentence: Quick question — what is the single most important thing your website needs to do for your business? Rule 8 sign off — line one: Brad Hemminger — line two: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Rule 9 never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, reputation, I appreciate, thank you for, getting back to me. Rule 10 short sentences max 20 words each grade 6 reading level. Rule 11 nonchalant and confident — never eager, never desperate, never over-explaining.";
 
 // Hard-coded test recipient — DO NOT pull from settings/db. Always send test emails here.
 const RECIPIENT = "b.h.weboutreach@gmail.com";
@@ -125,42 +125,29 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Guarantee the sign-off uses the full "X County" form and ends with the
-// required STOP line. Strips any state/country abbreviations the model may
-// have appended and replaces the bare county token if needed.
-function enforceCountySignoff(body: string, fullCounty: string): string {
+// Ensure the email ends with the canonical STOP line on its own,
+// preceded by a Brad Hemminger signature line. No county/location line.
+function enforceSignoff(body: string): string {
   const stopLine = "Reply STOP anytime — no hard feelings.";
-  // Normalize the canonical county string ("Pierce County", "Grays Harbor County", etc.)
-  const county = fullCounty.trim();
-  const bareCounty = county.replace(/\s+County$/i, "").trim();
-
+  const signature = "Brad Hemminger";
   const lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
-  // Drop trailing blank lines
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
-  // Drop existing STOP line variants from the end so we can re-append cleanly.
   if (lines.length && /reply\s+stop/i.test(lines[lines.length - 1])) lines.pop();
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
-  // The last remaining line should be the location line. Replace it with the
-  // canonical "<X> County" string. If it doesn't look like a location line
-  // (e.g. it's the signature itself), append a new county line.
   if (lines.length) {
     const last = lines[lines.length - 1].trim();
-    const looksLikeLocation =
-      new RegExp(`\\b${bareCounty}\\b`, "i").test(last) ||
-      /,?\s*(WA|USA|United States)\b/i.test(last) ||
-      /county/i.test(last);
-    if (looksLikeLocation) {
-      lines[lines.length - 1] = county;
-    } else {
-      lines.push(county);
+    if (/county\b/i.test(last) || /,?\s*(WA|USA|United States)\b/i.test(last)) {
+      lines.pop();
     }
-  } else {
-    lines.push(county);
+  }
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+
+  if (!lines.length || !/^brad\s+hemminger\s*$/i.test(lines[lines.length - 1].trim())) {
+    lines.push(signature);
   }
 
-  lines.push("");
   lines.push(stopLine);
   return lines.join("\n");
 }
@@ -246,7 +233,7 @@ Deno.serve(async (req) => {
     const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
     const parsed = parseSubjectAndBody(rawText);
     const subject = parsed.subject;
-    const emailBody = enforceCountySignoff(parsed.body, scenario.county);
+    const emailBody = enforceSignoff(parsed.body);
     const wc = wordCount(emailBody);
 
     // Subject must be exactly "Quick question for <business name>" — no brackets, no prefix.

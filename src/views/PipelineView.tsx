@@ -6,19 +6,20 @@ import { Badge } from "@/components/Badge";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STAGES = ["all", "contacted", "replied", "mock_sent", "call_scheduled", "proposal_sent", "won", "building", "delivered", "paid"];
+const STAGES = ["all", "contacted", "replied", "mock_sent", "proposal_sent", "agreement_received", "building", "delivered", "paid"];
 
 const STAGE_TONE: Record<string, any> = {
   contacted: "gray", replied: "gray",
-  mock_sent: "amber", call_scheduled: "amber", proposal_sent: "amber",
-  won: "blue", building: "blue",
+  mock_sent: "amber", proposal_sent: "amber",
+  agreement_received: "blue", building: "blue",
   delivered: "green", paid: "green",
 };
 
 const STAGE_LABEL: Record<string, string> = {
   contacted: "Contacted", replied: "Replied",
-  mock_sent: "Mock Sent", call_scheduled: "Call Scheduled", proposal_sent: "Proposal Sent",
-  won: "Won", building: "Building", delivered: "Delivered", paid: "Paid",
+  mock_sent: "Mock Sent", proposal_sent: "Proposal Sent",
+  agreement_received: "Agreement Received",
+  building: "Building", delivered: "Delivered", paid: "Paid",
 };
 
 function daysSince(iso: string) {
@@ -74,9 +75,8 @@ export function PipelineView() {
               <div className="w-24 text-[11px] text-muted-foreground">{daysSince(d.stage_entered_at)}d in stage</div>
               <div className="w-32 text-right">
                 {d.stage === "building" && <button className="btn-primary" onClick={() => advance(d, "delivered", "Site review complete → delivered", "Marked delivered")}>Review site</button>}
-                {d.stage === "won" && <button className="btn-green" onClick={() => advance(d, "building", "Invoice sent, build started", "Invoice sent")}>Send invoice</button>}
+                {d.stage === "agreement_received" && <button className="btn-green" onClick={() => advance(d, "building", "Build started", "Build started")}>Start build</button>}
                 {d.stage === "mock_sent" && <button className="btn-ghost" onClick={() => advance(d, "proposal_sent", "Follow-up sent", "Follow-up logged")}>Follow up</button>}
-                {d.stage === "call_scheduled" && <button className="btn-ghost">View lead</button>}
                 {d.stage === "delivered" && <button className="btn-green" onClick={() => advance(d, "paid", "Marked paid", "Marked paid")}>Mark paid</button>}
                 {(d.stage === "contacted" || d.stage === "replied" || d.stage === "proposal_sent" || d.stage === "paid") && (
                   <button className="btn-ghost">View lead</button>

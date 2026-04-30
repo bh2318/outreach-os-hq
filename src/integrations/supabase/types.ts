@@ -522,13 +522,16 @@ export type Database = {
           google_places_key: string | null
           id: number
           invoice_address: string | null
+          invoice_amount_cents: number
           invoice_business_name: string | null
           min_site_score: number
           operator_city: string | null
           operator_name: string | null
           outreach_active: boolean
           payment_instructions: string | null
+          payment_note: string
           payment_terms_days: number
+          reply_pipeline_active: boolean
           reply_to_email: string | null
           require_approval: boolean
           send_window_end: string
@@ -546,13 +549,16 @@ export type Database = {
           google_places_key?: string | null
           id?: number
           invoice_address?: string | null
+          invoice_amount_cents?: number
           invoice_business_name?: string | null
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
           payment_instructions?: string | null
+          payment_note?: string
           payment_terms_days?: number
+          reply_pipeline_active?: boolean
           reply_to_email?: string | null
           require_approval?: boolean
           send_window_end?: string
@@ -570,18 +576,45 @@ export type Database = {
           google_places_key?: string | null
           id?: number
           invoice_address?: string | null
+          invoice_amount_cents?: number
           invoice_business_name?: string | null
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
           payment_instructions?: string | null
+          payment_note?: string
           payment_terms_days?: number
+          reply_pipeline_active?: boolean
           reply_to_email?: string | null
           require_approval?: boolean
           send_window_end?: string
           send_window_start?: string
           stripe_connected?: boolean
+        }
+        Relationships: []
+      }
+      unsubscribed: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          lead_id: string | null
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          lead_id?: string | null
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          lead_id?: string | null
+          reason?: string | null
         }
         Relationships: []
       }
