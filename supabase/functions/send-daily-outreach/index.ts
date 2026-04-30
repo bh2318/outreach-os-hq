@@ -23,6 +23,22 @@ const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY);
 const REPLY_TO = "b.h.weboutreach@gmail.com";
 const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
+// Resolve the destination address for outreach.
+// Priority: 1) lead.email   2) contact@<domain-of-website_url>   3) null (phone-only)
+function resolveOutreachEmail(lead: { email: string | null; website_url: string | null }): string | null {
+  if (lead.email && lead.email.trim()) return lead.email.trim();
+  const url = (lead.website_url ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    if (!host || !host.includes(".")) return null;
+    return `contact@${host}`;
+  } catch {
+    return null;
+  }
+}
+
 const PROMPT_SYSTEM =
   "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Immediately before the sign off, on its own line, include exactly this sentence: Quick question — what is the single most important thing your website needs to do for your business? Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
 
