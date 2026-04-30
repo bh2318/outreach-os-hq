@@ -304,8 +304,9 @@ Deno.serve(async (req) => {
         let sendStatus: "sent" | "blocked" | "failed" = "blocked";
         let resendId: string | undefined;
 
-        if (SENDING_ENABLED && RESEND && lead.email) {
-          resendId = await sendViaResend(RESEND, lead.email, subject, body, lead.id);
+        const destEmail = (lead as any)._resolvedEmail as string | undefined;
+        if (SENDING_ENABLED && RESEND && destEmail) {
+          resendId = await sendViaResend(RESEND, destEmail, subject, body, lead.id);
           sendStatus = "sent";
           sent++;
         } else {
