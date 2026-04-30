@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SectionLabel } from "@/components/SectionLabel";
@@ -27,7 +27,7 @@ type Lead = {
   created_at: string;
 };
 
-type FilterId = "all" | "phone_only";
+type FilterId = "new" | "contacted" | "phone_only" | "all";
 
 function statusRank(l: Lead): number {
   if (l.archived || l.status === "archived") return 3;
@@ -74,13 +74,28 @@ export function LeadsView() {
   const { data, isLoading } = useAllLeads();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterId>("all");
+  const [filter, setFilter] = useState<FilterId>("new");
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Realtime: invalidate query whenever any lead changes so the list self-clears.
+  useEffect(() => {
+    const channel = supabase
+      .channel("leads-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "leads" },
+        () => qc.invalidateQueries({ queryKey: ["leads-all"] }),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [qc]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return (data ?? [])
       .filter((l) => {
+        if (filter === "new" && !(l.status === "new" && (l.outreach_count ?? 0) === 0)) return false;
+        if (filter === "contacted" && l.status !== "contacted") return false;
         if (filter === "phone_only" && l.status !== "phone_only") return false;
         if (!term) return true;
         return (
