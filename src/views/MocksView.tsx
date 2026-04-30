@@ -751,21 +751,31 @@ function FinalizeOverlay({
   const [agreement, setAgreement] = useState(defaultAgreement);
   const [submitting, setSubmitting] = useState(false);
 
+  const qc = useQueryClient();
   const handleConfirm = async () => {
+    if (!previewUrl) {
+      toast.error("Generate the mock first");
+      return;
+    }
     setSubmitting(true);
     try {
-      // Wiring to actually send is in the next prompt. For now: log + close.
-      await logActivity({
-        action_type: "mock_sent",
-        business_name: lead.business_name,
-        lead_id: lead.id,
-        detail: "Operator clicked Confirm and Send in Mock Studio finalize overlay",
-        outcome: "success",
+      const { data, error } = await supabase.functions.invoke("send-mock-delivery", {
+        body: {
+          lead_id: lead.id,
+          subject,
+          email_body: emailBody,
+          agreement,
+        },
       });
-      toast.success("Saved — sending will be wired in the next step");
+      if (error || (data && (data as any).error)) {
+        const msg = (error as any)?.message ?? (data as any)?.error ?? "Send failed";
+        throw new Error(String(msg));
+      }
+      toast.success("Mock + agreement sent");
+      qc.invalidateQueries();
       onClose();
     } catch (e: any) {
-      toast.error(e.message ?? "Failed");
+      toast.error(e.message ?? "Failed to send");
     } finally {
       setSubmitting(false);
     }
