@@ -601,7 +601,7 @@ Deno.serve(async (req) => {
     await supabase.from("leads").update({ status: "generating" }).eq("id", leadId);
     const { data: existingMock } = await supabase
       .from("mock_sites")
-      .select("id")
+      .select("id, notes")
       .eq("lead_id", leadId)
       .order("requested_at", { ascending: false })
       .limit(1)
@@ -616,10 +616,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Step 3 — call Claude with retry on parse failure
-    const userPrompt = buildUserPrompt(lead);
+    const operatorNotes: string | null = (existingMock as any)?.notes ?? null;
+
+    // Step 3 — call Claude with retry on parse failure, fall back to template if it fails
+    const userPrompt = buildUserPrompt(lead, operatorNotes);
     let raw = "";
     let copy: GeneratedCopy | null = null;
+    let usedFallback = false;
     try {
       raw = await callClaude(ANTHROPIC_KEY, SYSTEM_PROMPT, userPrompt);
       copy = tryParseJson(raw);
@@ -635,22 +638,17 @@ Deno.serve(async (req) => {
       }
     }
     if (!copy) {
-      // Mark failed and log
-      await supabase.from("leads").update({ status: "mock-requested" }).eq("id", leadId);
-      if (existingMock?.id) {
-        await supabase.from("mock_sites").update({ status: "not-generated" }).eq("id", existingMock.id);
-      }
+      // Fall back to a templated mock so the operator still gets a real hosted page
+      console.warn("[generate-mock] using fallback template — Claude unavailable or unparseable");
+      copy = fallbackCopy(lead);
+      usedFallback = true;
       await supabase.from("activity_log").insert({
         action_type: "mock_generated",
         business_name: lead.business_name,
         lead_id: leadId,
-        detail: `Mock generation failed — could not parse Claude JSON. Raw: ${raw.slice(0, 800)}`,
-        outcome: "failure",
+        detail: "Mock generated using fallback template — Claude API unavailable",
+        outcome: "warning",
       });
-      return new Response(
-        JSON.stringify({ error: "claude returned non-JSON", raw_preview: raw.slice(0, 400) }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     // Step 5 — build HTML
