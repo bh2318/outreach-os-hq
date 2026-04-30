@@ -157,13 +157,22 @@ export function FollowUpsView() {
                   }
                   badge={<Badge tone={u.tone}>{u.label}</Badge>}
                   actions={
-                    <button
-                      className="btn-primary"
-                      disabled={busyId === row.id}
-                      onClick={() => setOpenId(isOpen ? null : row.id)}
-                    >
-                      {isOpen ? "Hide draft" : "Generate and send"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="btn-primary"
+                        disabled={busyId === row.id}
+                        onClick={() => setOpenId(isOpen ? null : row.id)}
+                      >
+                        {isOpen ? "Hide draft" : "Generate and send"}
+                      </button>
+                      <button
+                        className="btn-ghost"
+                        disabled={busyId === row.id}
+                        onClick={() => archiveRow(row)}
+                      >
+                        Archive
+                      </button>
+                    </div>
                   }
                 />
                 {isOpen && (
