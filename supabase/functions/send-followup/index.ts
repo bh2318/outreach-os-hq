@@ -11,8 +11,21 @@ const corsHeaders = {
 };
 
 const SENDING_ENABLED = false; // flip to true once a Resend domain is verified
-const TEST_RECIPIENT = "b.hemminger18@gmail.com";
 const REPLY_TO = "b.h.weboutreach@gmail.com";
+
+function resolveOutreachEmail(email: string | null, websiteUrl: string | null): string | null {
+  if (email && email.trim()) return email.trim();
+  const url = (websiteUrl ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    if (!host || !host.includes(".")) return null;
+    return `contact@${host}`;
+  } catch {
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
