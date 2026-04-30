@@ -111,7 +111,23 @@ export function FollowUpsView() {
       toast.error(e?.message ?? "Failed to send");
     } finally {
       setBusyId(null);
+  }
+
+  async function archiveRow(row: FollowupRow) {
+    setBusyId(row.id);
+    try {
+      await supabase
+        .from("followup_queue")
+        .update({ archived: true, archived_at: new Date().toISOString() })
+        .eq("id", row.id);
+      toast.success("Follow-up archived");
+      qc.invalidateQueries();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to archive");
+    } finally {
+      setBusyId(null);
     }
+  }
   }
 
   return (
