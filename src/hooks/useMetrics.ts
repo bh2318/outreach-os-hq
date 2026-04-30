@@ -52,10 +52,12 @@ export function useDashboardMetrics() {
           .gte("created_at", startOfMonth.toISOString()),
         supabase.from("deals").select("actual_value, estimated_value, stage, stage_entered_at")
           .gte("stage_entered_at", startOfMonth.toISOString()).eq("stage", "paid"),
-        // All replies count for reply rate
-        supabase.from("replies").select("id", { count: "exact", head: true }),
-        // All emails count for reply rate
-        supabase.from("outreach_emails").select("id", { count: "exact", head: true }),
+        // Real YES + MAYBE replies (intent classifies as interested signals)
+        supabase.from("replies").select("id", { count: "exact", head: true })
+          .in("intent", ["interested", "price_inquiry", "mock_request", "call_request", "needs_response"]),
+        // Real outreach emails (status sent — drafts/queued/blocked excluded)
+        supabase.from("outreach_emails").select("id", { count: "exact", head: true })
+          .eq("status", "sent"),
         supabase.from("followup_queue").select("id", { count: "exact", head: true })
           .eq("sent", false).lte("due_date", new Date().toISOString().slice(0, 10)),
         supabase.from("deals").select("id", { count: "exact", head: true })
