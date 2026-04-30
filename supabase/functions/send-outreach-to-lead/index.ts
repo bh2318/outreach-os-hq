@@ -125,7 +125,7 @@ Write the cold email now.`;
       },
       body: JSON.stringify({
         from: FROM_ADDRESS,
-        to: [TEST_RECIPIENT],
+        to: [destEmail],
         reply_to: REPLY_TO,
         subject,
         text: body,
