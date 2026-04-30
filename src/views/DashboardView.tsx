@@ -192,39 +192,29 @@ export function DashboardView() {
         </button>
       </div>
 
-      {/* MIDDLE — Six metric cards */}
+      {/* MIDDLE — Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <MetricCard
           value={String(m?.leadsFoundToday ?? 0)}
           label="Leads found today"
-          context="since midnight"
         />
         <MetricCard
           value={String(m?.emailsSentTodayMidnight ?? 0)}
           label="Emails sent today"
-          context="since midnight"
         />
         <MetricCard
           value={String(m?.repliesReceivedToday ?? 0)}
           label="Replies received today"
-          context="since midnight"
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <MetricCard
           value={String(m?.dealsInProgress ?? 0)}
           label="Deals in progress"
-          context="not yet paid"
         />
         <MetricCard
           value={`$${((m?.revenueMtdCents ?? 0) / 100).toLocaleString()}`}
           label="Revenue this month"
-          context="this calendar month"
-        />
-        <MetricCard
-          value={String(m?.emailsAllTime ?? 0)}
-          label="Emails sent all time"
-          context="across all time"
         />
       </div>
 
