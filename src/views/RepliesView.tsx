@@ -212,7 +212,7 @@ function ReplyRow({ reply }: { reply: Reply }) {
 
       {/* Line 6 — buttons */}
       <div className="mt-3 flex items-center gap-2">
-        {m.group === "no" ? (
+        {m.group === "stop" ? null : m.group === "no" ? (
           <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
         ) : (
           <>
