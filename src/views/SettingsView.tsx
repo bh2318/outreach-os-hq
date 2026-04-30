@@ -304,6 +304,8 @@ export function SettingsView() {
         </Row>
       </Section>
 
+      <ArchivedItems />
+
       <div className="sticky bottom-0 bg-background pt-3">
         <button onClick={save}
           className="w-full bg-primary hover:bg-primary-hover text-primary-foreground rounded-md py-2.5 text-[12px] font-medium transition-colors">
