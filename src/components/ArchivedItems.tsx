@@ -84,10 +84,15 @@ export function ArchivedItems() {
   const qc = useQueryClient();
 
   async function restore(id: string) {
-    const table = tableFor(tab);
     const patch: any = { archived: false, archived_at: null };
     if (tab === "replies") patch.actioned = false;
-    const { error } = await (supabase.from(table) as any).update(patch).eq("id", id);
+    const q =
+      tab === "leads" ? supabase.from("leads").update(patch).eq("id", id) :
+      tab === "replies" ? supabase.from("replies").update(patch).eq("id", id) :
+      tab === "followups" ? supabase.from("followup_queue").update(patch).eq("id", id) :
+      tab === "deals" ? supabase.from("deals").update(patch).eq("id", id) :
+      supabase.from("mock_sites").update(patch).eq("id", id);
+    const { error } = await q;
     if (error) return toast.error(error.message);
     toast.success("Restored");
     qc.invalidateQueries();
@@ -96,8 +101,13 @@ export function ArchivedItems() {
   async function deleteOne(id: string) {
     const ok = window.confirm("This cannot be undone — permanently delete this item?");
     if (!ok) return;
-    const table = tableFor(tab);
-    const { error } = await (supabase.from(table) as any).delete().eq("id", id);
+    const q =
+      tab === "leads" ? supabase.from("leads").delete().eq("id", id) :
+      tab === "replies" ? supabase.from("replies").delete().eq("id", id) :
+      tab === "followups" ? supabase.from("followup_queue").delete().eq("id", id) :
+      tab === "deals" ? supabase.from("deals").delete().eq("id", id) :
+      supabase.from("mock_sites").delete().eq("id", id);
+    const { error } = await q;
     if (error) return toast.error(error.message);
     toast.success("Permanently deleted");
     qc.invalidateQueries({ queryKey: ["archived", tab] });
@@ -107,8 +117,13 @@ export function ArchivedItems() {
     const label = TABS.find((t) => t.id === tab)?.label.toLowerCase();
     const ok = window.confirm(`This cannot be undone — permanently delete ALL archived ${label}?`);
     if (!ok) return;
-    const table = tableFor(tab);
-    const { error } = await (supabase.from(table) as any).delete().eq("archived", true);
+    const q =
+      tab === "leads" ? supabase.from("leads").delete().eq("archived", true) :
+      tab === "replies" ? supabase.from("replies").delete().eq("archived", true) :
+      tab === "followups" ? supabase.from("followup_queue").delete().eq("archived", true) :
+      tab === "deals" ? supabase.from("deals").delete().eq("archived", true) :
+      supabase.from("mock_sites").delete().eq("archived", true);
+    const { error } = await q;
     if (error) return toast.error(error.message);
     toast.success(`Deleted all archived ${label}`);
     qc.invalidateQueries({ queryKey: ["archived", tab] });
