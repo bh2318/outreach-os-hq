@@ -197,6 +197,13 @@ export function LeadsView() {
                         No email — call or text directly
                       </div>
                     </div>
+                    <button
+                      className="btn-ghost"
+                      disabled={busyId === lead.id}
+                      onClick={() => archive(lead)}
+                    >
+                      Archive
+                    </button>
                   </div>
                 </div>
               );
