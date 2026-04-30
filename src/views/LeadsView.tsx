@@ -10,31 +10,6 @@ import { fmtRelative, type StatusTone } from "@/lib/format";
 import { logActivity } from "@/lib/activity";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Plus, X, Loader2 } from "lucide-react";
-
-const COMMON_CATEGORIES = [
-  "Roofing",
-  "Plumbing",
-  "Electrician",
-  "HVAC",
-  "Landscaping",
-  "Cleaning",
-  "Auto repair",
-  "Restaurant",
-  "Cafe",
-  "Salon / Barber",
-  "Dental",
-  "Medical / Wellness",
-  "Legal",
-  "Accounting / Financial",
-  "Real estate",
-  "Photography",
-  "Fitness / Gym",
-  "Pet services",
-  "Contractor / Construction",
-  "Retail",
-  "Other",
-];
 
 type Lead = {
   id: string;
@@ -52,11 +27,13 @@ type Lead = {
   created_at: string;
 };
 
+type FilterId = "all" | "phone_only";
+
 function statusRank(l: Lead): number {
   if (l.archived || l.status === "archived") return 3;
   if (l.status === "new" && (l.site_score === null || !l.website_url || l.site_score >= 100)) return 0;
   if (l.status === "new") return 1;
-  return 2; // contacted and other
+  return 2;
 }
 
 function siteBadge(l: Lead): { tone: StatusTone; label: string } {
@@ -69,6 +46,7 @@ function siteBadge(l: Lead): { tone: StatusTone; label: string } {
 
 function statusBadge(l: Lead): { tone: StatusTone; label: string } {
   if (l.archived || l.status === "archived") return { tone: "gray", label: "Archived" };
+  if (l.status === "phone_only") return { tone: "amber", label: "Phone only" };
   if (l.status === "new") return { tone: "blue", label: "New" };
   if (l.status === "contacted") return { tone: "purple", label: "Contacted" };
   if (l.status === "mock_sent") return { tone: "amber", label: "Mock sent" };
@@ -95,12 +73,14 @@ export function LeadsView() {
   const { data, isLoading } = useAllLeads();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterId>("all");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return (data ?? [])
       .filter((l) => {
+        if (filter === "phone_only" && l.status !== "phone_only") return false;
         if (!term) return true;
         return (
           l.business_name?.toLowerCase().includes(term) ||
@@ -112,11 +92,10 @@ export function LeadsView() {
         const ra = statusRank(a);
         const rb = statusRank(b);
         if (ra !== rb) return ra - rb;
-        // Within new (rank 1): higher site_score first
         if (ra === 1) return (b.site_score ?? 0) - (a.site_score ?? 0);
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-  }, [data, search]);
+  }, [data, search, filter]);
 
   async function archive(lead: Lead) {
     setBusyId(lead.id);
@@ -143,27 +122,41 @@ export function LeadsView() {
   }
 
   const queueCount = (data ?? []).filter((l) => !l.archived && l.status === "new").length;
-  const [addOpen, setAddOpen] = useState(false);
+  const phoneOnlyCount = (data ?? []).filter((l) => l.status === "phone_only").length;
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
         <SectionLabel>All leads</SectionLabel>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
-          <button
-            onClick={() => setAddOpen(true)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium",
-              "bg-primary text-primary-foreground hover:bg-primary-hover"
-            )}
-          >
-            <Plus className="w-3.5 h-3.5" /> Add Lead
-          </button>
-        </div>
+        <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button
+          onClick={() => setFilter("all")}
+          className={cn(
+            "rounded-full px-3 py-1 text-[11px] border transition-colors",
+            filter === "all"
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-transparent text-muted-foreground border-border hover:text-foreground",
+          )}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilter("phone_only")}
+          className={cn(
+            "rounded-full px-3 py-1 text-[11px] border transition-colors inline-flex items-center gap-1.5",
+            filter === "phone_only"
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-transparent text-muted-foreground border-border hover:text-foreground",
+          )}
+        >
+          Phone Only
+          {phoneOnlyCount > 0 && (
+            <span className="font-mono text-[10px] opacity-80">{phoneOnlyCount}</span>
+          )}
+        </button>
         <input
           className="input-base ml-auto"
           style={{ minWidth: 240 }}
@@ -174,10 +167,39 @@ export function LeadsView() {
       </div>
 
       {isLoading ? null : !filtered.length ? (
-        <EmptyState>No leads in the database yet.</EmptyState>
+        <EmptyState>
+          {filter === "phone_only"
+            ? "No phone-only leads right now. These appear when the scraper finds a business with no email or website."
+            : "No leads in the database yet. The automated scraper will populate this list."}
+        </EmptyState>
       ) : (
         <div className="space-y-2">
           {filtered.map((lead) => {
+            if (lead.status === "phone_only") {
+              return (
+                <div key={lead.id} className="surface-card">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[14px] font-semibold text-foreground">
+                          {lead.business_name}
+                        </span>
+                        <Badge tone="amber">Phone only</Badge>
+                      </div>
+                      <div className="mt-2 text-[22px] font-mono font-semibold text-foreground tracking-tight">
+                        {lead.phone ?? "No phone on file"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {lead.city ?? "—"}{lead.state ? `, ${lead.state}` : ""} · {lead.niche ?? "—"}
+                      </div>
+                      <div className="text-[11px] text-status-amber-text mt-1">
+                        No email — call or text directly
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
             const sb = siteBadge(lead);
             const stat = statusBadge(lead);
             const isArchived = lead.archived || lead.status === "archived";
@@ -222,127 +244,6 @@ export function LeadsView() {
           })}
         </div>
       )}
-
-      {addOpen && <AddLeadModal onClose={() => setAddOpen(false)} />}
-    </div>
-  );
-}
-
-function AddLeadModal({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
-  const [businessName, setBusinessName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("");
-  const [category, setCategory] = useState("");
-  const [websiteUrl, setWebsiteUrl] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const valid = businessName.trim() && phone.trim() && city.trim() && category.trim();
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!valid) return;
-    setSubmitting(true);
-    try {
-      const { data, error } = await supabase
-        .from("leads")
-        .insert({
-          business_name: businessName.trim(),
-          phone: phone.trim(),
-          city: city.trim(),
-          niche: category.trim(),
-          website_url: websiteUrl.trim() || null,
-          notes: notes.trim() || null,
-          status: "new",
-          site_score: 100,
-          archived: false,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      await logActivity({
-        action_type: "system",
-        business_name: businessName.trim(),
-        lead_id: data?.id,
-        detail: "Lead added manually from Leads tab",
-        outcome: "success",
-      });
-      toast.success("Lead added successfully");
-      qc.invalidateQueries({ queryKey: ["leads-all"] });
-      qc.invalidateQueries({ queryKey: ["tab-badges"] });
-      onClose();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to add lead");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center overflow-y-auto p-4 md:p-8">
-      <form
-        onSubmit={submit}
-        className="bg-surface border border-border rounded-xl w-full max-w-md"
-      >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <div className="text-[14px] font-semibold">Add lead</div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="p-5 space-y-3">
-          <div>
-            <div className="label-uppercase mb-1">Business name *</div>
-            <input className="input-base w-full" value={businessName} onChange={(e) => setBusinessName(e.target.value)} required autoFocus />
-          </div>
-          <div>
-            <div className="label-uppercase mb-1">Phone number *</div>
-            <input className="input-base w-full" value={phone} onChange={(e) => setPhone(e.target.value)} required type="tel" />
-          </div>
-          <div>
-            <div className="label-uppercase mb-1">City *</div>
-            <input className="input-base w-full" value={city} onChange={(e) => setCity(e.target.value)} required />
-          </div>
-          <div>
-            <div className="label-uppercase mb-1">Category *</div>
-            <select className="input-base w-full" value={category} onChange={(e) => setCategory(e.target.value)} required>
-              <option value="">Select category…</option>
-              {COMMON_CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className="label-uppercase mb-1">Website URL</div>
-            <input className="input-base w-full" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://…" />
-          </div>
-          <div>
-            <div className="label-uppercase mb-1">Notes</div>
-            <textarea className="input-base w-full" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ resize: "vertical" }} />
-          </div>
-        </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
-          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
-          <button
-            type="submit"
-            disabled={!valid || submitting}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[12px] font-medium",
-              "bg-primary text-primary-foreground hover:bg-primary-hover",
-              "disabled:opacity-60 disabled:cursor-not-allowed"
-            )}
-          >
-            {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            Submit
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
