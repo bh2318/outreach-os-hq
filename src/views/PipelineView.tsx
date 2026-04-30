@@ -6,19 +6,20 @@ import { Badge } from "@/components/Badge";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STAGES = ["all", "contacted", "replied", "mock_sent", "call_scheduled", "proposal_sent", "won", "building", "delivered", "paid"];
+const STAGES = ["all", "contacted", "replied", "mock_sent", "proposal_sent", "agreement_received", "building", "delivered", "paid"];
 
 const STAGE_TONE: Record<string, any> = {
   contacted: "gray", replied: "gray",
-  mock_sent: "amber", call_scheduled: "amber", proposal_sent: "amber",
-  won: "blue", building: "blue",
+  mock_sent: "amber", proposal_sent: "amber",
+  agreement_received: "blue", building: "blue",
   delivered: "green", paid: "green",
 };
 
 const STAGE_LABEL: Record<string, string> = {
   contacted: "Contacted", replied: "Replied",
-  mock_sent: "Mock Sent", call_scheduled: "Call Scheduled", proposal_sent: "Proposal Sent",
-  won: "Won", building: "Building", delivered: "Delivered", paid: "Paid",
+  mock_sent: "Mock Sent", proposal_sent: "Proposal Sent",
+  agreement_received: "Agreement Received",
+  building: "Building", delivered: "Delivered", paid: "Paid",
 };
 
 function daysSince(iso: string) {
