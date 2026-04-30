@@ -8,17 +8,22 @@ import { fmtRelative } from "@/lib/format";
 
 type TabId = "leads" | "replies" | "followups" | "deals" | "mocks";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "leads", label: "Leads" },
-  { id: "replies", label: "Replies" },
-  { id: "followups", label: "Follow-Ups" },
-  { id: "deals", label: "Deals" },
-  { id: "mocks", label: "Mocks" },
+const TABS: { id: TabId; label: string; table: string }[] = [
+  { id: "leads", label: "Leads", table: "leads" },
+  { id: "replies", label: "Replies", table: "replies" },
+  { id: "followups", label: "Follow-Ups", table: "followup_queue" },
+  { id: "deals", label: "Deals", table: "deals" },
+  { id: "mocks", label: "Mocks", table: "mock_sites" },
 ];
 
-function useArchived(tab: TabId) {
+function tableFor(tab: TabId): string {
+  return TABS.find((t) => t.id === tab)!.table;
+}
+
+function useArchived(tab: TabId, enabled: boolean) {
   return useQuery({
     queryKey: ["archived", tab],
+    enabled,
     queryFn: async () => {
       if (tab === "leads") {
         const { data, error } = await supabase
@@ -73,136 +78,141 @@ function useArchived(tab: TabId) {
 }
 
 export function ArchivedItems() {
+  const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<TabId>("leads");
-  const { data, isLoading } = useArchived(tab);
+  const { data, isLoading } = useArchived(tab, open);
   const qc = useQueryClient();
 
   async function restore(id: string) {
-    const table =
-      tab === "leads" ? "leads" :
-      tab === "replies" ? "replies" :
-      tab === "followups" ? "followup_queue" :
-      tab === "deals" ? "deals" : "mock_sites";
     const patch: any = { archived: false, archived_at: null };
-    if (tab === "leads") {
-      // also clear reply.actioned was tied to archive? Not for leads.
-    }
-    if (tab === "replies") {
-      patch.actioned = false;
-    }
-    const { error } = await (supabase.from(table) as any).update(patch).eq("id", id);
+    if (tab === "replies") patch.actioned = false;
+    const q =
+      tab === "leads" ? supabase.from("leads").update(patch).eq("id", id) :
+      tab === "replies" ? supabase.from("replies").update(patch).eq("id", id) :
+      tab === "followups" ? supabase.from("followup_queue").update(patch).eq("id", id) :
+      tab === "deals" ? supabase.from("deals").update(patch).eq("id", id) :
+      supabase.from("mock_sites").update(patch).eq("id", id);
+    const { error } = await q;
     if (error) return toast.error(error.message);
     toast.success("Restored");
     qc.invalidateQueries();
+  }
+
+  async function deleteOne(id: string) {
+    const ok = window.confirm("This cannot be undone — permanently delete this item?");
+    if (!ok) return;
+    const q =
+      tab === "leads" ? supabase.from("leads").delete().eq("id", id) :
+      tab === "replies" ? supabase.from("replies").delete().eq("id", id) :
+      tab === "followups" ? supabase.from("followup_queue").delete().eq("id", id) :
+      tab === "deals" ? supabase.from("deals").delete().eq("id", id) :
+      supabase.from("mock_sites").delete().eq("id", id);
+    const { error } = await q;
+    if (error) return toast.error(error.message);
+    toast.success("Permanently deleted");
+    qc.invalidateQueries({ queryKey: ["archived", tab] });
+  }
+
+  async function deleteAll() {
+    const label = TABS.find((t) => t.id === tab)?.label.toLowerCase();
+    const ok = window.confirm(`This cannot be undone — permanently delete ALL archived ${label}?`);
+    if (!ok) return;
+    const q =
+      tab === "leads" ? supabase.from("leads").delete().eq("archived", true) :
+      tab === "replies" ? supabase.from("replies").delete().eq("archived", true) :
+      tab === "followups" ? supabase.from("followup_queue").delete().eq("archived", true) :
+      tab === "deals" ? supabase.from("deals").delete().eq("archived", true) :
+      supabase.from("mock_sites").delete().eq("archived", true);
+    const { error } = await q;
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted all archived ${label}`);
+    qc.invalidateQueries({ queryKey: ["archived", tab] });
   }
 
   const rows = useMemo(() => data ?? [], [data]);
 
   function renderRow(r: any) {
     const archivedAt = r.archived_at ? fmtRelative(r.archived_at) : "—";
+    let title = "";
+    let detail = "";
     if (tab === "leads") {
-      return (
-        <div key={r.id} className="flex items-center gap-3 px-3 py-2 border-t border-border-faint">
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground truncate">{r.business_name}</div>
-            <div className="text-[10px] text-muted-foreground truncate">
-              {[r.niche, r.city, r.state, r.email, r.phone].filter(Boolean).join(" · ") || "—"}
-            </div>
-          </div>
-          <div className="text-[10px] text-muted-foreground w-28 text-right">Archived {archivedAt}</div>
-          <button className="btn-ghost" onClick={() => restore(r.id)}>Restore</button>
-        </div>
-      );
-    }
-    if (tab === "replies") {
-      return (
-        <div key={r.id} className="flex items-center gap-3 px-3 py-2 border-t border-border-faint">
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground truncate">
-              {r.leads?.business_name ?? r.from_email ?? "Reply"}
-            </div>
-            <div className="text-[10px] text-muted-foreground truncate">
-              {(r.subject ?? "").slice(0, 80)} {r.intent ? `· ${r.intent}` : ""}
-            </div>
-          </div>
-          <div className="text-[10px] text-muted-foreground w-28 text-right">Archived {archivedAt}</div>
-          <button className="btn-ghost" onClick={() => restore(r.id)}>Restore</button>
-        </div>
-      );
-    }
-    if (tab === "followups") {
-      return (
-        <div key={r.id} className="flex items-center gap-3 px-3 py-2 border-t border-border-faint">
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground truncate">{r.business_name}</div>
-            <div className="text-[10px] text-muted-foreground truncate">
-              Sequence #{r.sequence_number} · Due {r.due_date}
-              {r.draft_subject ? ` · ${r.draft_subject}` : ""}
-            </div>
-          </div>
-          <div className="text-[10px] text-muted-foreground w-28 text-right">Archived {archivedAt}</div>
-          <button className="btn-ghost" onClick={() => restore(r.id)}>Restore</button>
-        </div>
-      );
-    }
-    if (tab === "deals") {
-      return (
-        <div key={r.id} className="flex items-center gap-3 px-3 py-2 border-t border-border-faint">
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground truncate">{r.leads?.business_name ?? "—"}</div>
-            <div className="text-[10px] text-muted-foreground truncate">
-              {r.stage} {r.estimated_value ? `· est $${r.estimated_value}` : ""}
-            </div>
-          </div>
-          <div className="text-[10px] text-muted-foreground w-28 text-right">Archived {archivedAt}</div>
-          <button className="btn-ghost" onClick={() => restore(r.id)}>Restore</button>
-        </div>
-      );
+      title = r.business_name;
+      detail = [r.niche, r.city, r.state, r.email, r.phone].filter(Boolean).join(" · ") || "—";
+    } else if (tab === "replies") {
+      title = r.leads?.business_name ?? r.from_email ?? "Reply";
+      detail = `${(r.subject ?? "").slice(0, 80)}${r.intent ? ` · ${r.intent}` : ""}`;
+    } else if (tab === "followups") {
+      title = r.business_name;
+      detail = `Sequence #${r.sequence_number} · Due ${r.due_date}${r.draft_subject ? ` · ${r.draft_subject}` : ""}`;
+    } else if (tab === "deals") {
+      title = r.leads?.business_name ?? "—";
+      detail = `${r.stage}${r.estimated_value ? ` · est $${r.estimated_value}` : ""}`;
+    } else {
+      title = r.leads?.business_name ?? "Mock";
+      detail = `${r.status}${r.preview_url ? ` · ${r.preview_url}` : ""}`;
     }
     return (
       <div key={r.id} className="flex items-center gap-3 px-3 py-2 border-t border-border-faint">
         <div className="flex-1 min-w-0">
-          <div className="text-[12px] font-medium text-foreground truncate">{r.leads?.business_name ?? "Mock"}</div>
-          <div className="text-[10px] text-muted-foreground truncate">
-            {r.status} {r.preview_url ? `· ${r.preview_url}` : ""}
-          </div>
+          <div className="text-[12px] font-medium text-foreground truncate">{title}</div>
+          <div className="text-[10px] text-muted-foreground truncate">{detail}</div>
         </div>
         <div className="text-[10px] text-muted-foreground w-28 text-right">Archived {archivedAt}</div>
         <button className="btn-ghost" onClick={() => restore(r.id)}>Restore</button>
+        <button className="btn-ghost text-status-red-text hover:text-status-red-text" onClick={() => deleteOne(r.id)}>Delete Permanently</button>
       </div>
     );
   }
 
   return (
     <div className="surface-card">
-      <SectionLabel>Archived items</SectionLabel>
-      <div className="flex flex-wrap items-center gap-1.5 mb-3">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "rounded-full px-3 py-1 text-[11px] border transition-colors",
-              tab === t.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-transparent text-muted-foreground border-border hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between">
+        <SectionLabel>Archived items</SectionLabel>
+        <button
+          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "Hide" : "Show"} Archived Items
+        </button>
       </div>
-      <div className="rounded-md border border-border-faint overflow-hidden">
-        {isLoading ? (
-          <div className="px-3 py-6 text-[11px] text-muted-foreground">Loading…</div>
-        ) : !rows.length ? (
-          <div className="px-3 py-6 text-[11px] text-muted-foreground">
-            No archived {TABS.find((t) => t.id === tab)?.label.toLowerCase()} yet.
+      {open && (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-2">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[11px] border transition-colors",
+                  tab === t.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-transparent text-muted-foreground border-border hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+            <button
+              className="ml-auto text-[11px] text-status-red-text hover:underline disabled:opacity-50"
+              disabled={!rows.length}
+              onClick={deleteAll}
+            >
+              Delete All
+            </button>
           </div>
-        ) : (
-          rows.map(renderRow)
-        )}
-      </div>
+          <div className="rounded-md border border-border-faint overflow-hidden">
+            {isLoading ? (
+              <div className="px-3 py-6 text-[11px] text-muted-foreground">Loading…</div>
+            ) : !rows.length ? (
+              <div className="px-3 py-6 text-[11px] text-muted-foreground">
+                No archived {TABS.find((t) => t.id === tab)?.label.toLowerCase()} yet.
+              </div>
+            ) : (
+              rows.map(renderRow)
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

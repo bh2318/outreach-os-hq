@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SectionLabel } from "@/components/SectionLabel";
@@ -27,7 +27,7 @@ type Lead = {
   created_at: string;
 };
 
-type FilterId = "all" | "phone_only";
+type FilterId = "new" | "contacted" | "phone_only" | "all";
 
 function statusRank(l: Lead): number {
   if (l.archived || l.status === "archived") return 3;
@@ -74,13 +74,28 @@ export function LeadsView() {
   const { data, isLoading } = useAllLeads();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterId>("all");
+  const [filter, setFilter] = useState<FilterId>("new");
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Realtime: invalidate query whenever any lead changes so the list self-clears.
+  useEffect(() => {
+    const channel = supabase
+      .channel("leads-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "leads" },
+        () => qc.invalidateQueries({ queryKey: ["leads-all"] }),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [qc]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return (data ?? [])
       .filter((l) => {
+        if (filter === "new" && !(l.status === "new" && (l.outreach_count ?? 0) === 0)) return false;
+        if (filter === "contacted" && l.status !== "contacted") return false;
         if (filter === "phone_only" && l.status !== "phone_only") return false;
         if (!term) return true;
         return (
@@ -123,41 +138,41 @@ export function LeadsView() {
   }
 
   const queueCount = (data ?? []).filter((l) => !l.archived && l.status === "new").length;
+  const contactedCount = (data ?? []).filter((l) => l.status === "contacted").length;
   const phoneOnlyCount = (data ?? []).filter((l) => l.status === "phone_only").length;
+
+  const pills: { id: FilterId; label: string; count?: number }[] = [
+    { id: "new", label: "All New", count: queueCount },
+    { id: "contacted", label: "Contacted", count: contactedCount },
+    { id: "phone_only", label: "Phone Only", count: phoneOnlyCount },
+    { id: "all", label: "All" },
+  ];
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
-        <SectionLabel>All leads</SectionLabel>
+        <SectionLabel>Leads</SectionLabel>
         <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button
-          onClick={() => setFilter("all")}
-          className={cn(
-            "rounded-full px-3 py-1 text-[11px] border transition-colors",
-            filter === "all"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-transparent text-muted-foreground border-border hover:text-foreground",
-          )}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilter("phone_only")}
-          className={cn(
-            "rounded-full px-3 py-1 text-[11px] border transition-colors inline-flex items-center gap-1.5",
-            filter === "phone_only"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-transparent text-muted-foreground border-border hover:text-foreground",
-          )}
-        >
-          Phone Only
-          {phoneOnlyCount > 0 && (
-            <span className="font-mono text-[10px] opacity-80">{phoneOnlyCount}</span>
-          )}
-        </button>
+        {pills.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setFilter(p.id)}
+            className={cn(
+              "rounded-full px-3 py-1 text-[11px] border transition-colors inline-flex items-center gap-1.5",
+              filter === p.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-transparent text-muted-foreground border-border hover:text-foreground",
+            )}
+          >
+            {p.label}
+            {typeof p.count === "number" && p.count > 0 && (
+              <span className="font-mono text-[10px] opacity-80">{p.count}</span>
+            )}
+          </button>
+        ))}
         <input
           className="input-base ml-auto"
           style={{ minWidth: 240 }}
@@ -171,6 +186,10 @@ export function LeadsView() {
         <EmptyState>
           {filter === "phone_only"
             ? "No phone-only leads right now. These appear when the scraper finds a business with no email or website."
+            : filter === "contacted"
+            ? "No contacted leads yet. Once the scraper sends outreach, contacted businesses appear here."
+            : filter === "new"
+            ? "No new leads in the queue. The scraper will populate this list automatically every cycle."
             : "No leads in the database yet. The automated scraper will populate this list."}
         </EmptyState>
       ) : (

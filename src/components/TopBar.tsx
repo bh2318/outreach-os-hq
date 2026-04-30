@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDashboardMetrics } from "@/hooks/useMetrics";
+import { supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "./NotificationBell";
-
-const CYCLE_SECONDS = 5 * 60;
-const CYCLE_KEY = "outreach_os_cycle_anchor";
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
@@ -14,50 +13,54 @@ function StatItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function useCycleCountdown(active: boolean) {
-  const [secondsLeft, setSecondsLeft] = useState(CYCLE_SECONDS);
-  useEffect(() => {
-    if (!active) {
-      setSecondsLeft(CYCLE_SECONDS);
-      return;
-    }
-    const stored = Number(localStorage.getItem(CYCLE_KEY) ?? 0);
-    let anchor = stored && !Number.isNaN(stored) ? stored : 0;
-    const now = Date.now();
-    if (!anchor || now - anchor > CYCLE_SECONDS * 1000) {
-      anchor = now;
-      localStorage.setItem(CYCLE_KEY, String(anchor));
-    }
-    const tick = () => {
-      const elapsed = Math.floor((Date.now() - anchor) / 1000);
-      let remaining = CYCLE_SECONDS - elapsed;
-      if (remaining <= 0) {
-        anchor = Date.now();
-        localStorage.setItem(CYCLE_KEY, String(anchor));
-        remaining = CYCLE_SECONDS;
-      }
-      setSecondsLeft(remaining);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [active]);
-  return secondsLeft;
+function useCycleSettings() {
+  return useQuery({
+    queryKey: ["topbar-cycle-settings"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("settings")
+        .select("minutes_between_cycles, last_cycle_at")
+        .eq("id", 1)
+        .maybeSingle();
+      return {
+        minutes: Math.max(1, Math.min(60, Number((data as any)?.minutes_between_cycles ?? 5))),
+        lastCycleAt: (data as any)?.last_cycle_at as string | null,
+      };
+    },
+    refetchInterval: 15000,
+  });
 }
 
 function formatCountdown(s: number): string {
+  if (s <= 0) return "Next cycle imminent";
   if (s >= 60) {
-    const m = Math.ceil(s / 60);
-    return `Next cycle in ${m} min`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `Next cycle in ${m}m ${r.toString().padStart(2, "0")}s`;
   }
   return `Next cycle in ${s}s`;
 }
 
 export function TopBar() {
   const { data } = useDashboardMetrics();
+  const { data: cycle } = useCycleSettings();
   const replyRate = data?.replyRatePct ?? 0;
   const active = !!data?.outreachActive;
-  const cycleLeft = useCycleCountdown(active);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  let secondsLeft = 0;
+  if (cycle) {
+    const intervalMs = cycle.minutes * 60 * 1000;
+    const anchor = cycle.lastCycleAt ? new Date(cycle.lastCycleAt).getTime() : now - intervalMs;
+    const elapsed = now - anchor;
+    secondsLeft = Math.max(0, Math.ceil((intervalMs - elapsed) / 1000));
+  }
+
   return (
     <div className="h-12 border-b border-border bg-background flex items-center px-4 gap-6 sticky top-0 z-30 overflow-x-auto whitespace-nowrap">
       <div className="flex items-center gap-2.5">
@@ -81,7 +84,7 @@ export function TopBar() {
           <>
             <span className="w-px h-3 bg-faint" />
             <span className="text-[11px] text-status-green-text font-mono">
-              {formatCountdown(cycleLeft)}
+              {formatCountdown(secondsLeft)}
             </span>
           </>
         )}
