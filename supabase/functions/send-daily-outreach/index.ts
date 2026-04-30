@@ -138,16 +138,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2. Pull eligible leads (status=new, outreach_count=0, has email)
-    const { data: leads, error: leadsErr } = await supabase
+    // 2. Pull eligible leads (status=new, outreach_count=0, has email, not unsubscribed)
+    const { data: blacklist } = await supabase.from("unsubscribed").select("email");
+    const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
+
+    const { data: leadsRaw, error: leadsErr } = await supabase
       .from("leads")
-      .select("id,business_name,email,niche,city,state,county,website_url,rating,review_count")
+      .select("id,business_name,email,niche,city,state,county,website_url,rating,review_count,status")
       .eq("status", "new")
       .eq("outreach_count", 0)
       .not("email", "is", null)
       .order("created_at", { ascending: true })
       .limit(MAX_PER_DAY);
     if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
+    const leads = (leadsRaw ?? []).filter(
+      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
+    );
 
     if (!leads || leads.length === 0) {
       return new Response(
