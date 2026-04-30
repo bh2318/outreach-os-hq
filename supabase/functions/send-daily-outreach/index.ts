@@ -23,7 +23,7 @@ const MAX_PER_DAY = 250;
 const WINDOW_HOURS = 12;
 const SPACING_MS = Math.floor((WINDOW_HOURS * 60 * 60 * 1000) / MAX_PER_DAY); // ~172800ms = 2.88 min
 const REPLY_TO = "b.h.weboutreach@gmail.com";
-const FROM_ADDRESS = "Outreach OS <onboarding@resend.dev>"; // change to verified domain when live
+const FROM_ADDRESS = `Brad Hemminger <${Deno.env.get("RESEND_FROM_EMAIL") ?? ""}>`;
 
 const PROMPT_SYSTEM =
   "You are Brad Hemminger writing a cold outreach email to a local business owner. Confident, warm, nonchalant. Output subject line on line one, blank line, then email body, nothing else. Subject line is exactly the words Quick question for followed by the business name. First sentence: one genuine specific compliment about their actual review count and star rating, one sentence only, make it feel observed. Second paragraph: exactly this sentence and nothing else: I think your business is leaving money on the table without a proper website and I would love to show you what I mean. Third paragraph: two sentences maximum telling them you can put together a free mock website and send it over with a full quote and everything they need to know about the process. Closing line exactly: No obligation, no cost — I am ready to help. Your business deserves an online presence that mirrors everything you have built. Sign off: Brad Hemminger on one line, their county name followed by County on the next line pulled from the lead record county field, then exactly: Reply STOP anytime — no hard feelings. Never use: here's the thing, potential customers, fix this, convert, strings attached, we build, excited, thrilled, solution, transform, caught up, just reply, Bradford. Short sentences, max 20 words each, grade 6 reading level, first person throughout.";
