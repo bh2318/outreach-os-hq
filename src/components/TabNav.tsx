@@ -18,7 +18,7 @@ const TABS: { id: TabId; label: string; badgeKey?: "leads" | "calls" | "mocks" |
   { id: "dashboard", label: "Dashboard" },
   { id: "leads", label: "Leads", badgeKey: "leads", tone: "blue" },
   { id: "calls", label: "Calls", badgeKey: "calls", tone: "red" },
-  { id: "mocks", label: "Mock Requests", badgeKey: "mocks", tone: "amber" },
+  { id: "mocks", label: "Mock Studio", badgeKey: "mocks", tone: "amber" },
   { id: "replies", label: "Replies", badgeKey: "replies", tone: "green" },
   { id: "followups", label: "Follow-Ups", badgeKey: "followups", tone: "amber" },
   { id: "pipeline", label: "Pipeline" },
