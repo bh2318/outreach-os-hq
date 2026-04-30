@@ -1,0 +1,1 @@
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS leads_per_cycle integer NOT NULL DEFAULT 1 CHECK (leads_per_cycle >= 1 AND leads_per_cycle <= 10);

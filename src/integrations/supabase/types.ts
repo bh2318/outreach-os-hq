@@ -621,6 +621,7 @@ export type Database = {
           invoice_amount_cents: number
           invoice_business_name: string | null
           last_active_tab: string | null
+          leads_per_cycle: number
           min_site_score: number
           operator_city: string | null
           operator_name: string | null
@@ -651,6 +652,7 @@ export type Database = {
           invoice_amount_cents?: number
           invoice_business_name?: string | null
           last_active_tab?: string | null
+          leads_per_cycle?: number
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
@@ -681,6 +683,7 @@ export type Database = {
           invoice_amount_cents?: number
           invoice_business_name?: string | null
           last_active_tab?: string | null
+          leads_per_cycle?: number
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
