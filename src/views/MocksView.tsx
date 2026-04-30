@@ -337,6 +337,46 @@ function Workspace({ lead }: { lead: Lead }) {
   const isGenerating = lead.status === "generating" || mock?.status === "generating";
   const hasMock = lead.status === "mock-ready" || lead.status === "mock-sent" || !!mock?.preview_url;
 
+  // Additional Context notes — debounced autosave to mock_sites.notes
+  const [notes, setNotes] = useState<string>((mock as any)?.notes ?? "");
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteSaveTimer = useRef<number | null>(null);
+  const lastSavedNote = useRef<string>((mock as any)?.notes ?? "");
+  // Sync when mock loads/changes
+  useEffect(() => {
+    const n = (mock as any)?.notes ?? "";
+    setNotes(n);
+    lastSavedNote.current = n;
+  }, [mock?.id]);
+
+  useEffect(() => {
+    if (notes === lastSavedNote.current) return;
+    if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+    setNoteSaved(false);
+    noteSaveTimer.current = window.setTimeout(async () => {
+      try {
+        if (mock?.id) {
+          await supabase.from("mock_sites").update({ notes }).eq("id", mock.id);
+        } else {
+          // Create a placeholder mock_sites row to hold notes
+          await supabase.from("mock_sites").insert({
+            lead_id: lead.id,
+            status: "pending",
+            notes,
+          });
+        }
+        lastSavedNote.current = notes;
+        setNoteSaved(true);
+        window.setTimeout(() => setNoteSaved(false), 2000);
+      } catch (e) {
+        console.error("notes autosave failed", e);
+      }
+    }, 1000);
+    return () => {
+      if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+    };
+  }, [notes, mock?.id, lead.id]);
+
   const handleGenerate = async () => {
     // Optimistic immediate update so UI never freezes (<200ms).
     qc.setQueryData(["mock-studio-leads"], (prev: any) =>
