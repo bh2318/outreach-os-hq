@@ -60,6 +60,7 @@ function useAllLeads() {
       const { data, error } = await supabase
         .from("leads")
         .select("*")
+        .eq("archived", false)
         .order("created_at", { ascending: false })
         .limit(1000);
       if (error) throw error;
@@ -102,7 +103,7 @@ export function LeadsView() {
     try {
       const { error } = await supabase
         .from("leads")
-        .update({ archived: true, status: "archived" })
+        .update({ archived: true, archived_at: new Date().toISOString() })
         .eq("id", lead.id);
       if (error) throw error;
       await logActivity({
@@ -196,6 +197,13 @@ export function LeadsView() {
                         No email — call or text directly
                       </div>
                     </div>
+                    <button
+                      className="btn-ghost"
+                      disabled={busyId === lead.id}
+                      onClick={() => archive(lead)}
+                    >
+                      Archive
+                    </button>
                   </div>
                 </div>
               );

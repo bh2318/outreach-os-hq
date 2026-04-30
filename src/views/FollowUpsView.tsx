@@ -44,6 +44,7 @@ function useFollowupQueue() {
         .from("followup_queue")
         .select("*")
         .eq("sent", false)
+        .eq("archived", false)
         .lte("due_date", today)
         .order("sequence_number", { ascending: false })
         .order("due_date", { ascending: true });
@@ -113,6 +114,22 @@ export function FollowUpsView() {
     }
   }
 
+  async function archiveRow(row: FollowupRow) {
+    setBusyId(row.id);
+    try {
+      await supabase
+        .from("followup_queue")
+        .update({ archived: true, archived_at: new Date().toISOString() })
+        .eq("id", row.id);
+      toast.success("Follow-up archived");
+      qc.invalidateQueries();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to archive");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div>
       <SectionLabel>Follow-ups due</SectionLabel>
@@ -140,13 +157,22 @@ export function FollowUpsView() {
                   }
                   badge={<Badge tone={u.tone}>{u.label}</Badge>}
                   actions={
-                    <button
-                      className="btn-primary"
-                      disabled={busyId === row.id}
-                      onClick={() => setOpenId(isOpen ? null : row.id)}
-                    >
-                      {isOpen ? "Hide draft" : "Generate and send"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="btn-primary"
+                        disabled={busyId === row.id}
+                        onClick={() => setOpenId(isOpen ? null : row.id)}
+                      >
+                        {isOpen ? "Hide draft" : "Generate and send"}
+                      </button>
+                      <button
+                        className="btn-ghost"
+                        disabled={busyId === row.id}
+                        onClick={() => archiveRow(row)}
+                      >
+                        Archive
+                      </button>
+                    </div>
                   }
                 />
                 {isOpen && (

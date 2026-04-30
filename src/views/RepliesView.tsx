@@ -109,10 +109,13 @@ function ReplyRow({ reply }: { reply: Reply }) {
   async function archive() {
     setBusy(true);
     try {
-      await supabase.from("replies").update({ actioned: true }).eq("id", reply.id);
+      await supabase
+        .from("replies")
+        .update({ archived: true, archived_at: new Date().toISOString(), actioned: true })
+        .eq("id", reply.id);
       await logActivity({
         action_type: "replied", business_name: lead?.business_name,
-        detail: "Reply archived (not interested)", outcome: "warning", lead_id: reply.lead_id,
+        detail: "Reply archived", outcome: "warning", lead_id: reply.lead_id,
       });
       toast.success("Archived");
     } finally { setBusy(false); }
@@ -212,7 +215,9 @@ function ReplyRow({ reply }: { reply: Reply }) {
 
       {/* Line 6 — buttons */}
       <div className="mt-3 flex items-center gap-2">
-        {m.group === "stop" ? null : m.group === "no" ? (
+        {m.group === "stop" ? (
+          <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
+        ) : m.group === "no" ? (
           <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
         ) : (
           <>
@@ -230,6 +235,7 @@ function ReplyRow({ reply }: { reply: Reply }) {
             >
               {busy ? "Sending…" : "Confirm and send"}
             </button>
+            <button className="btn-ghost ml-auto" onClick={archive} disabled={busy}>Archive</button>
           </>
         )}
       </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSettings } from "@/hooks/useData";
 import { SectionLabel } from "@/components/SectionLabel";
+import { ArchivedItems } from "@/components/ArchivedItems";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -302,6 +303,8 @@ export function SettingsView() {
             onChange={(e) => update("payment_note", e.target.value)} />
         </Row>
       </Section>
+
+      <ArchivedItems />
 
       <div className="sticky bottom-0 bg-background pt-3">
         <button onClick={save}

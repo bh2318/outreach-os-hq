@@ -118,6 +118,7 @@ function useMockStudioLeads() {
           "id,business_name,city,state,county,niche,phone,email,rating,review_count,website_goal,client_assets,unsplash_images,status,created_at"
         )
         .in("status", ACTIVE_STATUSES)
+        .eq("archived", false)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Lead[];
@@ -473,7 +474,26 @@ function Workspace({ lead }: { lead: Lead }) {
               )}
             </div>
           </div>
-          <div className="flex-shrink-0">{statusBadge(lead.status)}</div>
+          <div className="flex-shrink-0 flex items-center gap-2">
+            {statusBadge(lead.status)}
+            <button
+              className="btn-ghost"
+              onClick={async () => {
+                if (!confirm(`Archive ${lead.business_name}? It will move out of Mock Studio.`)) return;
+                await supabase
+                  .from("leads")
+                  .update({ archived: true, archived_at: new Date().toISOString() })
+                  .eq("id", lead.id);
+                await supabase
+                  .from("mock_sites")
+                  .update({ archived: true, archived_at: new Date().toISOString() })
+                  .eq("lead_id", lead.id);
+                toast.success("Archived");
+              }}
+            >
+              Archive
+            </button>
+          </div>
         </div>
       </div>
 

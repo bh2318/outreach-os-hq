@@ -11,6 +11,7 @@ export function useCallRequests() {
         .from("replies")
         .select("*, leads(*)")
         .eq("intent", "call_request")
+        .eq("archived", false)
         .order("received_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -25,6 +26,7 @@ export function useMockRequests() {
       const { data, error } = await supabase
         .from("mock_sites")
         .select("*, leads(*)")
+        .eq("archived", false)
         .order("requested_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -39,6 +41,7 @@ export function useReplies() {
       const { data, error } = await supabase
         .from("replies")
         .select("*, leads(*)")
+        .eq("archived", false)
         .order("received_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -53,6 +56,7 @@ export function useDeals() {
       const { data, error } = await supabase
         .from("deals")
         .select("*, leads(*)")
+        .eq("archived", false)
         .order("stage_entered_at", { ascending: false });
       if (error) throw error;
       return data;
