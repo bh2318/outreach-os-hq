@@ -109,10 +109,13 @@ function ReplyRow({ reply }: { reply: Reply }) {
   async function archive() {
     setBusy(true);
     try {
-      await supabase.from("replies").update({ actioned: true }).eq("id", reply.id);
+      await supabase
+        .from("replies")
+        .update({ archived: true, archived_at: new Date().toISOString(), actioned: true })
+        .eq("id", reply.id);
       await logActivity({
         action_type: "replied", business_name: lead?.business_name,
-        detail: "Reply archived (not interested)", outcome: "warning", lead_id: reply.lead_id,
+        detail: "Reply archived", outcome: "warning", lead_id: reply.lead_id,
       });
       toast.success("Archived");
     } finally { setBusy(false); }
