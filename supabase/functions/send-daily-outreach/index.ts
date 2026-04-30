@@ -211,20 +211,40 @@ Deno.serve(async (req) => {
     const { data: blacklist } = await supabase.from("unsubscribed").select("email");
     const blockedEmails = new Set((blacklist ?? []).map((r: { email: string }) => r.email.toLowerCase()));
 
-    // 4. Pull eligible candidates (not yet contacted, not unsubscribed, has email)
+    // 4. Pull eligible candidates (not yet contacted, not unsubscribed)
     const { data: leadsRaw, error: leadsErr } = await supabase
       .from("leads")
       .select("id,business_name,email,phone,address,niche,city,state,county,website_url,rating,review_count,site_score,status")
       .eq("status", "new")
       .eq("outreach_count", 0)
       .eq("archived", false)
-      .not("email", "is", null)
       .limit(MAX_PER_DAY * 3);
     if (leadsErr) throw new Error(`leads read failed: ${leadsErr.message}`);
 
-    const candidates = (leadsRaw ?? []).filter(
-      (l) => l.email && !blockedEmails.has(String(l.email).toLowerCase()),
-    ) as Lead[];
+    // Phone-only pass: any lead with no resolvable email gets marked phone-only and skipped.
+    const candidatesPre = (leadsRaw ?? []) as Lead[];
+    const candidates: Lead[] = [];
+    let phoneOnlyMarked = 0;
+    for (const l of candidatesPre) {
+      const dest = resolveOutreachEmail(l);
+      const blockedByUnsub = dest && blockedEmails.has(dest.toLowerCase());
+      if (!dest) {
+        await supabase.from("leads").update({ status: "phone_only" }).eq("id", l.id);
+        await supabase.from("activity_log").insert({
+          action_type: "system",
+          business_name: l.business_name,
+          lead_id: l.id,
+          detail: `No email available for ${l.business_name} — marked as phone-only`,
+          outcome: "warning",
+        });
+        phoneOnlyMarked++;
+        continue;
+      }
+      if (blockedByUnsub) continue;
+      // Stash resolved email back onto lead for later send step
+      (l as any)._resolvedEmail = dest;
+      candidates.push(l);
+    }
 
     // 5. Airtight dedupe — skip if any 2 of 3 match an existing contacted lead
     const dupSkipped: string[] = [];
