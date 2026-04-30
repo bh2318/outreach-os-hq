@@ -88,6 +88,10 @@ export function SettingsView() {
         payment_note: (data as any).payment_note || "",
         min_site_score: data.min_site_score ?? 45,
         leads_per_cycle: (data as any).leads_per_cycle ?? 1,
+        minutes_between_cycles: (data as any).minutes_between_cycles ?? 5,
+        daily_email_cap: (data as any).daily_email_cap ?? 288,
+        pacific_send_start: (data as any).pacific_send_start ?? "08:00:00",
+        pacific_send_end: (data as any).pacific_send_end ?? "18:00:00",
         outreach_active: !!data.outreach_active,
         reply_pipeline_active: !!(data as any).reply_pipeline_active,
       });
@@ -107,6 +111,10 @@ export function SettingsView() {
       payment_note: s.payment_note,
       min_site_score: s.min_site_score,
       leads_per_cycle: s.leads_per_cycle,
+      minutes_between_cycles: s.minutes_between_cycles,
+      daily_email_cap: s.daily_email_cap,
+      pacific_send_start: s.pacific_send_start,
+      pacific_send_end: s.pacific_send_end,
     };
     const { error } = await supabase.from("settings").update(patch as any).eq("id", 1);
     if (error) return toast.error(error.message);
