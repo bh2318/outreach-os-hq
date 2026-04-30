@@ -106,6 +106,7 @@ export function SettingsView() {
       payment_terms_days: s.payment_terms_days,
       payment_note: s.payment_note,
       min_site_score: s.min_site_score,
+      leads_per_cycle: s.leads_per_cycle,
     };
     const { error } = await supabase.from("settings").update(patch as any).eq("id", 1);
     if (error) return toast.error(error.message);
