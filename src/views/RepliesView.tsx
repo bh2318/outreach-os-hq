@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useReplies } from "@/hooks/useData";
 import { SectionLabel } from "@/components/SectionLabel";
 import { EmptyState } from "@/components/EmptyState";
@@ -17,7 +18,7 @@ type IntentMeta = {
   badge: string;
   instruction: string;
   sortKey: number;
-  draftFn: string | null; // edge function for draft if missing
+  draftFn: string | null;
   sendFn: string;
   hideDraft?: boolean;
 };
@@ -69,7 +70,19 @@ function intentMeta(r: Reply): IntentMeta {
   };
 }
 
-function ReplyRow({ reply }: { reply: Reply }) {
+function getReplyTimeLabel(reply: Reply): { label: string; isHot: boolean } {
+  const outreachTime = reply.leads?.last_contacted;
+  const replyTime = reply.received_at;
+  if (!outreachTime || !replyTime) return { label: "", isHot: false };
+  const diffMs = new Date(replyTime).getTime() - new Date(outreachTime).getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const isHot = diffMins <= 120;
+  if (diffMins < 60) return { label: `Replied ${diffMins}m after outreach`, isHot };
+  if (diffMins < 1440) return { label: `Replied ${Math.floor(diffMins / 60)}h after outreach`, isHot };
+  return { label: `Replied ${Math.floor(diffMins / 1440)}d after outreach`, isHot };
+}
+
+function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) => void }) {
   const m = useMemo(() => intentMeta(reply), [reply]);
   const lead = reply.leads;
   const [draft, setDraft] = useState<string>(reply.draft_response ?? "");
@@ -77,8 +90,8 @@ function ReplyRow({ reply }: { reply: Reply }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const { label: replyTimeLabel, isHot } = getReplyTimeLabel(reply);
 
-  // Backfill draft if missing
   useEffect(() => {
     if (m.hideDraft || draft || !m.draftFn) return;
     let cancelled = false;
@@ -103,7 +116,6 @@ function ReplyRow({ reply }: { reply: Reply }) {
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reply.id]);
 
   async function archive() {
@@ -111,13 +123,14 @@ function ReplyRow({ reply }: { reply: Reply }) {
     try {
       await supabase
         .from("replies")
-        .update({ archived: true, archived_at: new Date().toISOString(), actioned: true })
+        .update({ archived: true, actioned: true })
         .eq("id", reply.id);
       await logActivity({
         action_type: "replied", business_name: lead?.business_name,
         detail: "Reply archived", outcome: "warning", lead_id: reply.lead_id,
       });
       toast.success("Archived");
+      onDismiss(reply.id);
     } finally { setBusy(false); }
   }
 
@@ -131,7 +144,6 @@ function ReplyRow({ reply }: { reply: Reply }) {
       if (error) throw error;
       if (data && data.success === false) throw new Error(data.error ?? "Send failed");
       await supabase.from("replies").update({ actioned: true }).eq("id", reply.id);
-      // Mark related notification acted_on
       await supabase
         .from("notifications")
         .update({ acted_on: true, read: true, status: "acted", acted_at: new Date().toISOString() })
@@ -142,6 +154,7 @@ function ReplyRow({ reply }: { reply: Reply }) {
         detail: `Sent ${m.group.toUpperCase()} response`, outcome: "success", lead_id: reply.lead_id,
       });
       toast.success("Sent");
+      onDismiss(reply.id);
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to send");
     } finally {
@@ -169,12 +182,13 @@ function ReplyRow({ reply }: { reply: Reply }) {
   return (
     <div className="surface-card relative">
       <div className={cn("priority-bar", barBg[m.tone])} />
-      {/* Line 1 */}
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[15px] font-bold text-foreground truncate">{lead?.business_name ?? "Unknown"}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-[15px] font-bold text-foreground truncate">{lead?.business_name ?? "Unknown"}</div>
+          {isHot && <span title="Replied within 2 hours — high intent">🔥</span>}
+        </div>
         <Badge tone={m.tone}>{m.badge}</Badge>
       </div>
-      {/* Line 2 */}
       <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span>{lead?.niche ?? "—"}</span>
         <span className="text-faint">·</span>
@@ -182,17 +196,19 @@ function ReplyRow({ reply }: { reply: Reply }) {
         {lead?.phone && <><span className="text-faint">·</span><span>{lead.phone}</span></>}
         <span className="text-faint">·</span>
         <span>{fmtRelative(reply.received_at)}</span>
+        {replyTimeLabel && (
+          <>
+            <span className="text-faint">·</span>
+            <span className={isHot ? "text-status-amber-text font-medium" : ""}>{replyTimeLabel}</span>
+          </>
+        )}
       </div>
-      {/* Line 3 — full reply text */}
       <div className="mt-3 rounded-md border border-border-faint bg-background/60 px-3 py-2.5 text-[12px] text-foreground whitespace-pre-wrap leading-relaxed">
         {reply.body || <span className="text-faint italic">(empty)</span>}
       </div>
-      {/* Line 4 — instruction */}
       <div className={cn("mt-3 text-[12px] font-medium", accentText[m.tone])}>
         {m.instruction}
       </div>
-
-      {/* Line 5 — draft */}
       {!m.hideDraft && (
         <div className="mt-3">
           <div className="label-uppercase mb-1.5">Pre-drafted response</div>
@@ -212,20 +228,12 @@ function ReplyRow({ reply }: { reply: Reply }) {
           />
         </div>
       )}
-
-      {/* Line 6 — buttons */}
       <div className="mt-3 flex items-center gap-2">
-        {m.group === "stop" ? (
-          <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
-        ) : m.group === "no" ? (
+        {m.group === "stop" || m.group === "no" ? (
           <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
         ) : (
           <>
-            <button
-              className="btn-ghost"
-              onClick={() => setEditing((e) => !e)}
-              disabled={busy}
-            >
+            <button className="btn-ghost" onClick={() => setEditing((e) => !e)} disabled={busy}>
               {editing ? "Lock draft" : "Edit draft"}
             </button>
             <button
@@ -245,17 +253,44 @@ function ReplyRow({ reply }: { reply: Reply }) {
 
 export function RepliesView() {
   const { data, isLoading } = useReplies();
+  const qc = useQueryClient();
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("replies-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "replies" },
+        () => qc.invalidateQueries({ queryKey: ["replies"] }),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [qc]);
+
+  function onDismiss(id: string) {
+    setDismissed((prev) => new Set([...prev, id]));
+  }
+
+  const now = new Date();
 
   const sorted = useMemo(() => {
     return [...(data ?? [])]
-      .filter((r: Reply) => !r.actioned)
+      .filter((r: Reply) => {
+        if (dismissed.has(r.id)) return false;
+        if (r.actioned) return false;
+        if (r.archived) return false;
+        const m = intentMeta(r);
+        if (m.group === "no" || m.group === "stop") return false;
+        return true;
+      })
       .sort((a: Reply, b: Reply) => {
         const sa = intentMeta(a).sortKey;
         const sb = intentMeta(b).sortKey;
         if (sa !== sb) return sa - sb;
         return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
       });
-  }, [data]);
+  }, [data, dismissed, now]);
 
   return (
     <div>
@@ -267,7 +302,7 @@ export function RepliesView() {
         <EmptyState>No replies waiting — the system is running.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {sorted.map((r) => <ReplyRow key={r.id} reply={r} />)}
+          {sorted.map((r) => <ReplyRow key={r.id} reply={r} onDismiss={onDismiss} />)}
         </div>
       )}
     </div>
