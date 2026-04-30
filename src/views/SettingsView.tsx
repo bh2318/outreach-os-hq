@@ -225,6 +225,23 @@ export function SettingsView() {
             onChange={(e) => update("min_site_score", Number(e.target.value))} />
         </Row>
         <div className="py-3 border-t border-border-faint">
+          <div className="grid grid-cols-[200px_1fr] items-center gap-4">
+            <div className="text-[12px] text-foreground">Leads per cycle</div>
+            <div className="flex justify-end">
+              <input type="number" min={1} max={10}
+                className="input-base w-[100px] text-right font-mono"
+                value={s.leads_per_cycle ?? 1}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(10, Number(e.target.value) || 1));
+                  update("leads_per_cycle", n);
+                }} />
+            </div>
+          </div>
+          <div className="text-[10px] text-faint mt-2 leading-relaxed">
+            At {s.leads_per_cycle ?? 1} leads per cycle the system contacts approximately {(s.leads_per_cycle ?? 1) * 288} businesses per day.
+          </div>
+        </div>
+        <div className="py-3 border-t border-border-faint">
           <div className="text-[12px] text-foreground mb-2">Scoring reference</div>
           <div className="rounded-md border border-border overflow-hidden">
             <table className="w-full text-[11px]">
