@@ -220,6 +220,68 @@ export function SettingsView() {
         </div>
       </Section>
 
+      {/* Cycle controls */}
+      <Section label="Cycle controls">
+        <Row label="Minutes between cycles" hint="How often the scraper fires (1–60).">
+          <input type="number" min={1} max={60}
+            className="input-base w-[100px] text-right font-mono"
+            value={s.minutes_between_cycles ?? 5}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(60, Number(e.target.value) || 1));
+              update("minutes_between_cycles", n);
+            }} />
+        </Row>
+        <Row label="Leads per cycle" hint="Businesses contacted per cycle (1–20).">
+          <input type="number" min={1} max={20}
+            className="input-base w-[100px] text-right font-mono"
+            value={s.leads_per_cycle ?? 1}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+              update("leads_per_cycle", n);
+            }} />
+        </Row>
+        <Row label="Daily email cap" hint="Maximum outreach emails sent per day (1–1500).">
+          <input type="number" min={1} max={1500}
+            className="input-base w-[100px] text-right font-mono"
+            value={s.daily_email_cap ?? 288}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(1500, Number(e.target.value) || 1));
+              update("daily_email_cap", n);
+            }} />
+        </Row>
+        <Row label="Sending window start" hint="Pacific time — earliest emails send.">
+          <input type="time"
+            className="input-base w-[140px] font-mono"
+            value={(s.pacific_send_start ?? "08:00:00").slice(0, 5)}
+            onChange={(e) => update("pacific_send_start", `${e.target.value}:00`)} />
+        </Row>
+        <Row label="Sending window end" hint="Pacific time — latest emails send.">
+          <input type="time"
+            className="input-base w-[140px] font-mono"
+            value={(s.pacific_send_end ?? "18:00:00").slice(0, 5)}
+            onChange={(e) => update("pacific_send_end", `${e.target.value}:00`)} />
+        </Row>
+        <div className="py-3 border-t border-border-faint">
+          {(() => {
+            const m = Math.max(1, Number(s.minutes_between_cycles ?? 5));
+            const lpc = Math.max(1, Number(s.leads_per_cycle ?? 1));
+            const cap = Math.max(1, Number(s.daily_email_cap ?? 288));
+            const startH = Number((s.pacific_send_start ?? "08:00:00").slice(0, 2));
+            const startM = Number((s.pacific_send_start ?? "08:00:00").slice(3, 5));
+            const endH = Number((s.pacific_send_end ?? "18:00:00").slice(0, 2));
+            const endM = Number((s.pacific_send_end ?? "18:00:00").slice(3, 5));
+            const windowMins = Math.max(0, (endH * 60 + endM) - (startH * 60 + startM));
+            const windowHours = +(windowMins / 60).toFixed(1);
+            const projected = Math.min(cap, Math.floor(windowMins / m) * lpc);
+            return (
+              <div className="text-[11px] text-muted-foreground leading-relaxed">
+                At <span className="font-mono text-foreground">{lpc}</span> lead{lpc === 1 ? "" : "s"} per cycle every <span className="font-mono text-foreground">{m}</span> minute{m === 1 ? "" : "s"} during a <span className="font-mono text-foreground">{windowHours}</span>-hour window the system contacts approximately <span className="font-mono text-foreground">{projected}</span> businesses per day (daily cap: {cap}).
+              </div>
+            );
+          })()}
+        </div>
+      </Section>
+
       {/* Lead targeting (read-only) */}
       <Section label="Lead targeting">
         <div className="py-3 text-[12px] text-muted-foreground">
@@ -232,23 +294,6 @@ export function SettingsView() {
             value={s.min_site_score ?? 45}
             onChange={(e) => update("min_site_score", Number(e.target.value))} />
         </Row>
-        <div className="py-3 border-t border-border-faint">
-          <div className="grid grid-cols-[200px_1fr] items-center gap-4">
-            <div className="text-[12px] text-foreground">Leads per cycle</div>
-            <div className="flex justify-end">
-              <input type="number" min={1} max={10}
-                className="input-base w-[100px] text-right font-mono"
-                value={s.leads_per_cycle ?? 1}
-                onChange={(e) => {
-                  const n = Math.max(1, Math.min(10, Number(e.target.value) || 1));
-                  update("leads_per_cycle", n);
-                }} />
-            </div>
-          </div>
-          <div className="text-[10px] text-faint mt-2 leading-relaxed">
-            At {s.leads_per_cycle ?? 1} leads per cycle the system contacts approximately {(s.leads_per_cycle ?? 1) * 288} businesses per day.
-          </div>
-        </div>
         <div className="py-3 border-t border-border-faint">
           <div className="text-[12px] text-foreground mb-2">Scoring reference</div>
           <div className="rounded-md border border-border overflow-hidden">
