@@ -6,7 +6,7 @@ import type { StatusTone } from "@/lib/format";
 export type TabId =
   | "dashboard"
   | "leads"
-  | "calls"
+  | "notes"
   | "mocks"
   | "replies"
   | "followups"
@@ -14,10 +14,10 @@ export type TabId =
   | "activity"
   | "settings";
 
-const TABS: { id: TabId; label: string; badgeKey?: "leads" | "calls" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
+const TABS: { id: TabId; label: string; badgeKey?: "leads" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "leads", label: "Leads", badgeKey: "leads", tone: "blue" },
-  { id: "calls", label: "Calls", badgeKey: "calls", tone: "red" },
+  { id: "notes", label: "Notes" },
   { id: "mocks", label: "Mock Studio", badgeKey: "mocks", tone: "amber" },
   { id: "replies", label: "Replies", badgeKey: "replies", tone: "green" },
   { id: "followups", label: "Follow-Ups", badgeKey: "followups", tone: "amber" },

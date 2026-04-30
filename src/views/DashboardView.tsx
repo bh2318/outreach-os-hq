@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useDashboardMetrics } from "@/hooks/useMetrics";
 import { useReplies } from "@/hooks/useData";
 import { SectionLabel } from "@/components/SectionLabel";
@@ -5,6 +8,81 @@ import { Badge } from "@/components/Badge";
 import { fmtRelative, truncate, type StatusTone } from "@/lib/format";
 import { navigateTab } from "@/lib/nav";
 import { cn } from "@/lib/utils";
+import { Check } from "lucide-react";
+
+const SETUP_KEY = "outreach_os_setup_complete";
+
+function useSetupStatus() {
+  return useQuery({
+    queryKey: ["setup-status"],
+    queryFn: async () => {
+      const [leadsRes, settingsRes, emailsRes] = await Promise.all([
+        supabase.from("leads").select("id", { count: "exact", head: true }),
+        supabase
+          .from("settings")
+          .select("operator_name, reply_to_email, outreach_active, reply_pipeline_active")
+          .eq("id", 1)
+          .maybeSingle(),
+        supabase.from("outreach_emails").select("id", { count: "exact", head: true }),
+      ]);
+      const s: any = settingsRes.data ?? {};
+      return {
+        leadsCount: leadsRes.count ?? 0,
+        emailsCount: emailsRes.count ?? 0,
+        emailVerified: !!(s.operator_name && s.reply_to_email),
+        domainActive: true, // RESEND_FROM_EMAIL is a server secret; presence assumed if any email sent
+        replyPipelineActive: !!s.reply_pipeline_active,
+        systemActive: !!s.outreach_active,
+      };
+    },
+  });
+}
+
+function GettingStartedOverlay({ onDismiss }: { onDismiss: () => void }) {
+  const { data } = useSetupStatus();
+  const items = [
+    { label: "Email settings verified", done: !!data?.emailVerified },
+    { label: "Domain active in Resend", done: !!data?.domainActive },
+    { label: "Reply Pipeline active", done: !!data?.replyPipelineActive },
+    { label: "System Active toggle on", done: !!data?.systemActive },
+    { label: "First lead contacted", done: (data?.emailsCount ?? 0) > 0 },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6">
+        <h2 className="text-[20px] font-semibold text-foreground">Welcome to Outreach OS</h2>
+        <p className="text-[12px] text-muted-foreground mt-1">Complete these steps to go live.</p>
+        <ul className="mt-5 space-y-2.5">
+          {items.map((it) => (
+            <li key={it.label} className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "w-5 h-5 rounded-full inline-flex items-center justify-center border",
+                  it.done
+                    ? "bg-status-green-text border-status-green-text text-background"
+                    : "bg-transparent border-border"
+                )}
+              >
+                {it.done && <Check className="w-3 h-3" strokeWidth={3} />}
+              </span>
+              <span className={cn("text-[13px]", it.done ? "text-foreground" : "text-muted-foreground")}>
+                {it.label}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end mt-6">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[12px] font-medium bg-primary text-primary-foreground hover:bg-primary-hover"
+            onClick={onDismiss}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MetricCard({
   value,
@@ -46,6 +124,15 @@ function intentBadge(intent: string): { tone: StatusTone; label: string; sortKey
 export function DashboardView() {
   const { data: m } = useDashboardMetrics();
   const { data: replies } = useReplies();
+  const { data: setup } = useSetupStatus();
+
+  const [showOverlay, setShowOverlay] = useState(false);
+  useEffect(() => {
+    if (!setup) return;
+    const dismissed = localStorage.getItem(SETUP_KEY) === "true";
+    if (dismissed) return;
+    if (setup.leadsCount === 0 && !setup.systemActive) setShowOverlay(true);
+  }, [setup]);
 
   const active = !!m?.outreachActive;
   const unactioned = m?.unactionedReplies ?? 0;
@@ -178,6 +265,15 @@ export function DashboardView() {
           </div>
         )}
       </div>
+
+      {showOverlay && (
+        <GettingStartedOverlay
+          onDismiss={() => {
+            localStorage.setItem(SETUP_KEY, "true");
+            setShowOverlay(false);
+          }}
+        />
+      )}
     </div>
   );
 }

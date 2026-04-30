@@ -337,6 +337,46 @@ function Workspace({ lead }: { lead: Lead }) {
   const isGenerating = lead.status === "generating" || mock?.status === "generating";
   const hasMock = lead.status === "mock-ready" || lead.status === "mock-sent" || !!mock?.preview_url;
 
+  // Additional Context notes — debounced autosave to mock_sites.notes
+  const [notes, setNotes] = useState<string>((mock as any)?.notes ?? "");
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteSaveTimer = useRef<number | null>(null);
+  const lastSavedNote = useRef<string>((mock as any)?.notes ?? "");
+  // Sync when mock loads/changes
+  useEffect(() => {
+    const n = (mock as any)?.notes ?? "";
+    setNotes(n);
+    lastSavedNote.current = n;
+  }, [mock?.id]);
+
+  useEffect(() => {
+    if (notes === lastSavedNote.current) return;
+    if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+    setNoteSaved(false);
+    noteSaveTimer.current = window.setTimeout(async () => {
+      try {
+        if (mock?.id) {
+          await supabase.from("mock_sites").update({ notes }).eq("id", mock.id);
+        } else {
+          // Create a placeholder mock_sites row to hold notes
+          await supabase.from("mock_sites").insert({
+            lead_id: lead.id,
+            status: "pending",
+            notes,
+          });
+        }
+        lastSavedNote.current = notes;
+        setNoteSaved(true);
+        window.setTimeout(() => setNoteSaved(false), 2000);
+      } catch (e) {
+        console.error("notes autosave failed", e);
+      }
+    }, 1000);
+    return () => {
+      if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+    };
+  }, [notes, mock?.id, lead.id]);
+
   const handleGenerate = async () => {
     // Optimistic immediate update so UI never freezes (<200ms).
     qc.setQueryData(["mock-studio-leads"], (prev: any) =>
@@ -461,6 +501,41 @@ function Workspace({ lead }: { lead: Lead }) {
                 No specific goal provided
               </div>
             )}
+            {lead.website_goal != null && (
+              <div
+                className={cn(
+                  "text-[10px] mt-1 flex items-center justify-between gap-2",
+                  (lead.website_goal?.length ?? 0) > 200
+                    ? "text-status-amber-text"
+                    : "text-muted-foreground"
+                )}
+              >
+                <span>{lead.website_goal?.length ?? 0} / 200</span>
+                {(lead.website_goal?.length ?? 0) > 200 && (
+                  <span>Consider summarizing for best Claude results</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Additional Context — Optional */}
+          <div>
+            <div className="label-uppercase mb-1.5 flex items-center justify-between gap-2">
+              <span>Additional Context — Optional</span>
+              {noteSaved && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-status-green-text normal-case tracking-normal">
+                  <Check className="w-2.5 h-2.5" /> Saved
+                </span>
+              )}
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Anything specific you want Claude to focus on — a tone, an angle, a detail you noticed about this business."
+              className="input-base w-full text-[12px] leading-relaxed"
+              style={{ resize: "vertical" }}
+            />
           </div>
 
           {/* Stats */}

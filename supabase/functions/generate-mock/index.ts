@@ -43,7 +43,7 @@ type GeneratedCopy = {
   accent_color: string;
 };
 
-function buildUserPrompt(lead: LeadInput): string {
+function buildUserPrompt(lead: LeadInput, extraContext?: string | null): string {
   return [
     `Business name: ${lead.business_name}`,
     `City: ${lead.city ?? ""}`,
@@ -55,8 +55,11 @@ function buildUserPrompt(lead: LeadInput): string {
     `Website goal (the owner's stated goal — let this shape every section): ${
       lead.website_goal ?? "(not provided — write a balanced general-purpose site)"
     }`,
+    extraContext && extraContext.trim()
+      ? `Operator's additional context (treat as high-priority direction from a human reviewer): ${extraContext.trim()}`
+      : "",
     "",
-    "Use the website goal to shape every piece of content. If they want calls, make the phone number the hero focus. If they want bookings, make the CTA about booking. If they want credibility, lead with reviews and trust signals.",
+    "Use the website goal AND any operator context to shape every piece of content. If they want calls, make the phone number the hero focus. If they want bookings, make the CTA about booking. If they want credibility, lead with reviews and trust signals.",
     "",
     "Return ONLY raw JSON with EXACTLY these fields:",
     `{
@@ -81,30 +84,86 @@ function buildUserPrompt(lead: LeadInput): string {
     "- food and restaurants: #E8553E",
     "- beauty and salon: #6B3FA0",
     "- retail and general: #3D5A80",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
-async function callClaude(apiKey: string, system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-3-5-20251001",
-      max_tokens: 3000,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Claude error ${res.status}: ${t}`);
+async function callClaude(apiKey: string, system: string, user: string, timeoutMs = 30000): Promise<string> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-3-5-20251001",
+        max_tokens: 3000,
+        system,
+        messages: [{ role: "user", content: user }],
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Claude error ${res.status}: ${t}`);
+    }
+    const d = await res.json();
+    return (d?.content?.[0]?.text ?? "").trim();
+  } finally {
+    clearTimeout(timer);
   }
-  const d = await res.json();
-  return (d?.content?.[0]?.text ?? "").trim();
+}
+
+function fallbackCopy(lead: LeadInput): GeneratedCopy {
+  const niche = (lead.niche ?? "local business").toLowerCase();
+  const city = lead.city ?? "your area";
+  const colorMap: Record<string, [string, string, string]> = {
+    roof: ["#D2691E", "#1A1A2E", "#EF9F27"],
+    contractor: ["#D2691E", "#1A1A2E", "#EF9F27"],
+    legal: ["#1B2A4A", "#0F172A", "#C9A84C"],
+    law: ["#1B2A4A", "#0F172A", "#C9A84C"],
+    financ: ["#1B2A4A", "#0F172A", "#C9A84C"],
+    landscape: ["#2D5A27", "#1A1A2E", "#EF9F27"],
+    medical: ["#2E86AB", "#0F172A", "#EF9F27"],
+    dental: ["#2E86AB", "#0F172A", "#EF9F27"],
+    auto: ["#C0392B", "#1A1A2E", "#EF9F27"],
+    restaurant: ["#E8553E", "#1A1A2E", "#EF9F27"],
+    cafe: ["#E8553E", "#1A1A2E", "#EF9F27"],
+    salon: ["#6B3FA0", "#1A1A2E", "#EF9F27"],
+    barber: ["#6B3FA0", "#1A1A2E", "#EF9F27"],
+  };
+  let primary = "#3D5A80", secondary = "#1A1A2E", accent = "#EF9F27";
+  for (const k of Object.keys(colorMap)) {
+    if (niche.includes(k)) { [primary, secondary, accent] = colorMap[k]; break; }
+  }
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const owner = lead.business_name;
+  return {
+    hero_tagline: `Trusted ${cap(niche)} in ${city}`,
+    hero_subheading: `${owner} proudly serves ${city} with reliable, professional service. We treat every customer like a neighbor and stand behind our work — that's why locals keep coming back and recommending us to friends and family.`,
+    services: [
+      { name: "Professional Service", description: `Honest, dependable ${niche} work delivered on time. We handle every job with the same care, big or small.` },
+      { name: "Free Estimates", description: `Get a clear no-pressure quote before any work begins. We'll walk you through your options so you can decide what's right for you.` },
+      { name: "Local & Trusted", description: `Born and raised in ${city}. We're not a faceless chain — we're your neighbors and we stand behind every job.` },
+      { name: "Fair Pricing", description: `Straight-forward pricing with no surprises at the end. What we quote is what you pay.` },
+      { name: "Quality Guarantee", description: `If you're not happy, we make it right. Our reputation in ${city} is everything to us.` },
+      { name: "Quick Response", description: `Fast scheduling and clear communication from the first call to the final handshake.` },
+    ],
+    about: `I'm proud to run ${owner} right here in ${city}. After years in this business, I've learned that what people really want is someone who shows up on time, does honest work, and treats them with respect. That's how I run things and that's how my team runs things. We're not the biggest — we just care more.`,
+    testimonials: [
+      { reviewer: "Sarah M.", review: `${owner} did a fantastic job — on time, fair price, and the quality was excellent.` },
+      { reviewer: "Mike T.", review: `Best ${niche} I've worked with in ${city}. Honest, professional, and they actually care.` },
+      { reviewer: "Jessica L.", review: `Friendly, fast, and reasonable. Highly recommend to anyone in the area.` },
+    ],
+    cta_phrase: lead.phone ? "Call Today For Free Quote" : "Get Your Free Quote",
+    meta_description: `${owner} — trusted ${niche} serving ${city}. Honest work, fair prices, satisfaction guaranteed.`.slice(0, 155),
+    primary_color: primary,
+    secondary_color: secondary,
+    accent_color: accent,
+  };
 }
 
 function tryParseJson(text: string): GeneratedCopy | null {
@@ -542,7 +601,7 @@ Deno.serve(async (req) => {
     await supabase.from("leads").update({ status: "generating" }).eq("id", leadId);
     const { data: existingMock } = await supabase
       .from("mock_sites")
-      .select("id")
+      .select("id, notes")
       .eq("lead_id", leadId)
       .order("requested_at", { ascending: false })
       .limit(1)
@@ -557,10 +616,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Step 3 — call Claude with retry on parse failure
-    const userPrompt = buildUserPrompt(lead);
+    const operatorNotes: string | null = (existingMock as any)?.notes ?? null;
+
+    // Step 3 — call Claude with retry on parse failure, fall back to template if it fails
+    const userPrompt = buildUserPrompt(lead, operatorNotes);
     let raw = "";
     let copy: GeneratedCopy | null = null;
+    let usedFallback = false;
     try {
       raw = await callClaude(ANTHROPIC_KEY, SYSTEM_PROMPT, userPrompt);
       copy = tryParseJson(raw);
@@ -576,22 +638,17 @@ Deno.serve(async (req) => {
       }
     }
     if (!copy) {
-      // Mark failed and log
-      await supabase.from("leads").update({ status: "mock-requested" }).eq("id", leadId);
-      if (existingMock?.id) {
-        await supabase.from("mock_sites").update({ status: "not-generated" }).eq("id", existingMock.id);
-      }
+      // Fall back to a templated mock so the operator still gets a real hosted page
+      console.warn("[generate-mock] using fallback template — Claude unavailable or unparseable");
+      copy = fallbackCopy(lead);
+      usedFallback = true;
       await supabase.from("activity_log").insert({
         action_type: "mock_generated",
         business_name: lead.business_name,
         lead_id: leadId,
-        detail: `Mock generation failed — could not parse Claude JSON. Raw: ${raw.slice(0, 800)}`,
-        outcome: "failure",
+        detail: "Mock generated using fallback template — Claude API unavailable",
+        outcome: "warning",
       });
-      return new Response(
-        JSON.stringify({ error: "claude returned non-JSON", raw_preview: raw.slice(0, 400) }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     // Step 5 — build HTML
@@ -642,12 +699,14 @@ Deno.serve(async (req) => {
       action_type: "mock_generated",
       business_name: lead.business_name,
       lead_id: leadId,
-      detail: `Mock generated and uploaded: ${publicUrl}`,
-      outcome: "success",
+      detail: usedFallback
+        ? `Mock generated using fallback template (Claude unavailable): ${publicUrl}`
+        : `Mock generated and uploaded: ${publicUrl}`,
+      outcome: usedFallback ? "warning" : "success",
     });
 
     return new Response(
-      JSON.stringify({ success: true, preview_url: publicUrl, copy }),
+      JSON.stringify({ success: true, preview_url: publicUrl, copy, fallback: usedFallback }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {

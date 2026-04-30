@@ -359,6 +359,7 @@ export type Database = {
           generated_at: string | null
           id: string
           lead_id: string | null
+          notes: string | null
           opened_count: number
           preview_url: string | null
           requested_at: string
@@ -370,6 +371,7 @@ export type Database = {
           generated_at?: string | null
           id?: string
           lead_id?: string | null
+          notes?: string | null
           opened_count?: number
           preview_url?: string | null
           requested_at?: string
@@ -381,6 +383,7 @@ export type Database = {
           generated_at?: string | null
           id?: string
           lead_id?: string | null
+          notes?: string | null
           opened_count?: number
           preview_url?: string | null
           requested_at?: string
@@ -445,6 +448,24 @@ export type Database = {
           reply_preview?: string | null
           status?: string
           type?: string
+        }
+        Relationships: []
+      }
+      operator_notes: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
         }
         Relationships: []
       }

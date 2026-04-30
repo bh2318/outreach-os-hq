@@ -10,6 +10,31 @@ import { fmtRelative, type StatusTone } from "@/lib/format";
 import { logActivity } from "@/lib/activity";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Plus, X, Loader2 } from "lucide-react";
+
+const COMMON_CATEGORIES = [
+  "Roofing",
+  "Plumbing",
+  "Electrician",
+  "HVAC",
+  "Landscaping",
+  "Cleaning",
+  "Auto repair",
+  "Restaurant",
+  "Cafe",
+  "Salon / Barber",
+  "Dental",
+  "Medical / Wellness",
+  "Legal",
+  "Accounting / Financial",
+  "Real estate",
+  "Photography",
+  "Fitness / Gym",
+  "Pet services",
+  "Contractor / Construction",
+  "Retail",
+  "Other",
+];
 
 type Lead = {
   id: string;
@@ -118,12 +143,24 @@ export function LeadsView() {
   }
 
   const queueCount = (data ?? []).filter((l) => !l.archived && l.status === "new").length;
+  const [addOpen, setAddOpen] = useState(false);
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
         <SectionLabel>All leads</SectionLabel>
-        <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground font-mono">{queueCount} in queue</span>
+          <button
+            onClick={() => setAddOpen(true)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium",
+              "bg-primary text-primary-foreground hover:bg-primary-hover"
+            )}
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Lead
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -185,6 +222,127 @@ export function LeadsView() {
           })}
         </div>
       )}
+
+      {addOpen && <AddLeadModal onClose={() => setAddOpen(false)} />}
+    </div>
+  );
+}
+
+function AddLeadModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [businessName, setBusinessName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [category, setCategory] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const valid = businessName.trim() && phone.trim() && city.trim() && category.trim();
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!valid) return;
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          business_name: businessName.trim(),
+          phone: phone.trim(),
+          city: city.trim(),
+          niche: category.trim(),
+          website_url: websiteUrl.trim() || null,
+          notes: notes.trim() || null,
+          status: "new",
+          site_score: 100,
+          archived: false,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      await logActivity({
+        action_type: "system",
+        business_name: businessName.trim(),
+        lead_id: data?.id,
+        detail: "Lead added manually from Leads tab",
+        outcome: "success",
+      });
+      toast.success("Lead added successfully");
+      qc.invalidateQueries({ queryKey: ["leads-all"] });
+      qc.invalidateQueries({ queryKey: ["tab-badges"] });
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to add lead");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center overflow-y-auto p-4 md:p-8">
+      <form
+        onSubmit={submit}
+        className="bg-surface border border-border rounded-xl w-full max-w-md"
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="text-[14px] font-semibold">Add lead</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <div className="label-uppercase mb-1">Business name *</div>
+            <input className="input-base w-full" value={businessName} onChange={(e) => setBusinessName(e.target.value)} required autoFocus />
+          </div>
+          <div>
+            <div className="label-uppercase mb-1">Phone number *</div>
+            <input className="input-base w-full" value={phone} onChange={(e) => setPhone(e.target.value)} required type="tel" />
+          </div>
+          <div>
+            <div className="label-uppercase mb-1">City *</div>
+            <input className="input-base w-full" value={city} onChange={(e) => setCity(e.target.value)} required />
+          </div>
+          <div>
+            <div className="label-uppercase mb-1">Category *</div>
+            <select className="input-base w-full" value={category} onChange={(e) => setCategory(e.target.value)} required>
+              <option value="">Select category…</option>
+              {COMMON_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="label-uppercase mb-1">Website URL</div>
+            <input className="input-base w-full" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://…" />
+          </div>
+          <div>
+            <div className="label-uppercase mb-1">Notes</div>
+            <textarea className="input-base w-full" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ resize: "vertical" }} />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+          <button
+            type="submit"
+            disabled={!valid || submitting}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-[12px] font-medium",
+              "bg-primary text-primary-foreground hover:bg-primary-hover",
+              "disabled:opacity-60 disabled:cursor-not-allowed"
+            )}
+          >
+            {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            Submit
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
