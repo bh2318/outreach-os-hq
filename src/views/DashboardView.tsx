@@ -87,17 +87,14 @@ function GettingStartedOverlay({ onDismiss }: { onDismiss: () => void }) {
 function MetricCard({
   value,
   label,
-  context,
 }: {
   value: string;
   label: string;
-  context?: string;
 }) {
   return (
     <div className="surface-card flex flex-col items-center text-center py-5">
       <div className="text-[28px] font-medium font-mono leading-none text-metric-value">{value}</div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-2">{label}</div>
-      {context && <div className="text-[11px] text-faint mt-1">{context}</div>}
     </div>
   );
 }
