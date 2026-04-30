@@ -265,6 +265,15 @@ export function DashboardView() {
           </div>
         )}
       </div>
+
+      {showOverlay && (
+        <GettingStartedOverlay
+          onDismiss={() => {
+            localStorage.setItem(SETUP_KEY, "true");
+            setShowOverlay(false);
+          }}
+        />
+      )}
     </div>
   );
 }
