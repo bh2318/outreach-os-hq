@@ -87,17 +87,14 @@ function GettingStartedOverlay({ onDismiss }: { onDismiss: () => void }) {
 function MetricCard({
   value,
   label,
-  context,
 }: {
   value: string;
   label: string;
-  context?: string;
 }) {
   return (
     <div className="surface-card flex flex-col items-center text-center py-5">
       <div className="text-[28px] font-medium font-mono leading-none text-metric-value">{value}</div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-2">{label}</div>
-      {context && <div className="text-[11px] text-faint mt-1">{context}</div>}
     </div>
   );
 }
@@ -195,39 +192,29 @@ export function DashboardView() {
         </button>
       </div>
 
-      {/* MIDDLE — Six metric cards */}
+      {/* MIDDLE — Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <MetricCard
           value={String(m?.leadsFoundToday ?? 0)}
           label="Leads found today"
-          context="since midnight"
         />
         <MetricCard
           value={String(m?.emailsSentTodayMidnight ?? 0)}
           label="Emails sent today"
-          context="since midnight"
         />
         <MetricCard
           value={String(m?.repliesReceivedToday ?? 0)}
           label="Replies received today"
-          context="since midnight"
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <MetricCard
           value={String(m?.dealsInProgress ?? 0)}
           label="Deals in progress"
-          context="not yet paid"
         />
         <MetricCard
           value={`$${((m?.revenueMtdCents ?? 0) / 100).toLocaleString()}`}
           label="Revenue this month"
-          context="this calendar month"
-        />
-        <MetricCard
-          value={String(m?.emailsAllTime ?? 0)}
-          label="Emails sent all time"
-          context="across all time"
         />
       </div>
 

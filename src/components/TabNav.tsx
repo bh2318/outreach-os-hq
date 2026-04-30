@@ -6,7 +6,6 @@ import type { StatusTone } from "@/lib/format";
 export type TabId =
   | "dashboard"
   | "leads"
-  | "notes"
   | "mocks"
   | "replies"
   | "followups"
@@ -17,7 +16,6 @@ export type TabId =
 const TABS: { id: TabId; label: string; badgeKey?: "leads" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "leads", label: "Leads", badgeKey: "leads", tone: "blue" },
-  { id: "notes", label: "Notes" },
   { id: "mocks", label: "Mock Studio", badgeKey: "mocks", tone: "amber" },
   { id: "replies", label: "Replies", badgeKey: "replies", tone: "green" },
   { id: "followups", label: "Follow-Ups", badgeKey: "followups", tone: "amber" },
