@@ -230,6 +230,7 @@ export type Database = {
           archived: boolean
           business_name: string
           city: string | null
+          client_assets: Json | null
           county: string | null
           created_at: string
           email: string | null
@@ -247,6 +248,8 @@ export type Database = {
           site_score: number | null
           state: string | null
           status: string
+          unsplash_images: Json | null
+          website_goal: string | null
           website_url: string | null
           zip: string | null
         }
@@ -255,6 +258,7 @@ export type Database = {
           archived?: boolean
           business_name: string
           city?: string | null
+          client_assets?: Json | null
           county?: string | null
           created_at?: string
           email?: string | null
@@ -272,6 +276,8 @@ export type Database = {
           site_score?: number | null
           state?: string | null
           status?: string
+          unsplash_images?: Json | null
+          website_goal?: string | null
           website_url?: string | null
           zip?: string | null
         }
@@ -280,6 +286,7 @@ export type Database = {
           archived?: boolean
           business_name?: string
           city?: string | null
+          client_assets?: Json | null
           county?: string | null
           created_at?: string
           email?: string | null
@@ -297,6 +304,8 @@ export type Database = {
           site_score?: number | null
           state?: string | null
           status?: string
+          unsplash_images?: Json | null
+          website_goal?: string | null
           website_url?: string | null
           zip?: string | null
         }
