@@ -59,10 +59,26 @@ Deno.serve(async (req) => {
 
     const { data: lead, error: leadErr } = await supabase
       .from("leads")
-      .select("id, business_name, niche, city, state, phone, website_url, rating, review_count")
+      .select("id, business_name, niche, city, state, phone, website_url, email, rating, review_count")
       .eq("id", leadId)
       .single();
     if (leadErr || !lead) throw new Error(`lead not found: ${leadErr?.message ?? "no row"}`);
+
+    const destEmail = resolveOutreachEmail((lead as any).email ?? null, lead.website_url ?? null);
+    if (!destEmail) {
+      await supabase.from("leads").update({ status: "phone_only" }).eq("id", lead.id);
+      await supabase.from("activity_log").insert({
+        action_type: "system",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: `No email available for ${lead.business_name} — marked as phone-only`,
+        outcome: "warning",
+      });
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "phone_only", leadId: lead.id }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const userMsg = `Business: ${lead.business_name}
 Niche: ${lead.niche ?? "local business"}
