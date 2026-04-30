@@ -125,42 +125,29 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Guarantee the sign-off uses the full "X County" form and ends with the
-// required STOP line. Strips any state/country abbreviations the model may
-// have appended and replaces the bare county token if needed.
-function enforceCountySignoff(body: string, fullCounty: string): string {
+// Ensure the email ends with the canonical STOP line on its own,
+// preceded by a Brad Hemminger signature line. No county/location line.
+function enforceSignoff(body: string): string {
   const stopLine = "Reply STOP anytime — no hard feelings.";
-  // Normalize the canonical county string ("Pierce County", "Grays Harbor County", etc.)
-  const county = fullCounty.trim();
-  const bareCounty = county.replace(/\s+County$/i, "").trim();
-
+  const signature = "Brad Hemminger";
   const lines = body.replace(/\r\n/g, "\n").split("\n").map((l) => l.trimEnd());
-  // Drop trailing blank lines
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
-  // Drop existing STOP line variants from the end so we can re-append cleanly.
   if (lines.length && /reply\s+stop/i.test(lines[lines.length - 1])) lines.pop();
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
-  // The last remaining line should be the location line. Replace it with the
-  // canonical "<X> County" string. If it doesn't look like a location line
-  // (e.g. it's the signature itself), append a new county line.
   if (lines.length) {
     const last = lines[lines.length - 1].trim();
-    const looksLikeLocation =
-      new RegExp(`\\b${bareCounty}\\b`, "i").test(last) ||
-      /,?\s*(WA|USA|United States)\b/i.test(last) ||
-      /county/i.test(last);
-    if (looksLikeLocation) {
-      lines[lines.length - 1] = county;
-    } else {
-      lines.push(county);
+    if (/county\b/i.test(last) || /,?\s*(WA|USA|United States)\b/i.test(last)) {
+      lines.pop();
     }
-  } else {
-    lines.push(county);
+  }
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+
+  if (!lines.length || !/^brad\s+hemminger\s*$/i.test(lines[lines.length - 1].trim())) {
+    lines.push(signature);
   }
 
-  lines.push("");
   lines.push(stopLine);
   return lines.join("\n");
 }
