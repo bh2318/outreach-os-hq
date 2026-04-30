@@ -88,7 +88,7 @@ Write the cold email now.`;
       body = fullText.slice(sepIdx + 3).trim();
     }
 
-    // Send via Resend
+    // Send via Resend (open tracking enabled)
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -101,6 +101,8 @@ Write the cold email now.`;
         reply_to: REPLY_TO,
         subject,
         text: body,
+        tracking: { opens: true },
+        headers: { "X-Lead-Id": lead.id },
       }),
     });
     const resendJson = await resendRes.json();

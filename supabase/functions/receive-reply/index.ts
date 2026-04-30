@@ -14,8 +14,10 @@ const corsHeaders = {
 const CLASSIFY_PROMPT =
   "Classify this email reply as YES NO or MAYBE. YES means the person is interested or wants to see more. NO means not interested or wants to stop. MAYBE means they asked a question or are unsure. Reply with one word only.";
 
-const YES_DRAFT_PROMPT =
-  "You are Brad Hemminger replying to a local business owner who just said yes. Warm, confident, already moving. First person throughout. Output the email body exactly as follows and nothing else. Body must be under 120 words total. Body text exactly: Hey, appreciate you getting back to me. I am already getting started on your free mock website and will have something over to you shortly worth looking at. In the meantime if you have a logo, any photos of your work, or websites you like the look of feel free to send them my way — anything helps. If not I have everything I need to put something solid together. Talk soon. Then a blank line, then sign off line one: Brad Hemminger. Then sign off line two exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never mention price. Never mention contract. Never mention timeline. Never use the words excited, thrilled, solution, transform, or potential.";
+const YES_FIXED_BODY = `Hey, appreciate you getting back to me. I am already getting started on your free mock website and will have something over to you shortly worth looking at. In the meantime if you have a logo, any photos of your work, or websites you like the look of feel free to send them my way — anything helps. If not I have everything I need to put something solid together. Talk soon.
+
+Brad Hemminger
+Reply STOP anytime — no hard feelings`;
 
 const MAYBE_DRAFT_PROMPT =
   "You are Brad Hemminger replying to a local business owner who replied with a question or hesitation. Warm, confident, no pressure. First person. Two short paragraphs maximum. Answer their question directly and plainly. End with: Reply STOP anytime — no hard feelings. Sign off: Brad Hemminger on one line, then exactly: Reply STOP anytime — no hard feelings. Do NOT include a county line. Do NOT include any location line. Never mention price. Never eager. Plain words.";
@@ -249,7 +251,48 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
-    // Step 2 — STOP detection (highest priority — before classification).
+    // Step 1.5 — Duplicate reply protection.
+    // If a reply from this exact email arrived in the last 24h, append to that
+    // reply card (under a "Follow-up message received" label) instead of creating a new one.
+    const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentDup } = await supabase
+      .from("replies")
+      .select("id, body")
+      .eq("lead_id", lead.id)
+      .ilike("from_email", from)
+      .gte("received_at", cutoff24h)
+      .order("received_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recentDup?.id) {
+      const appended = `${recentDup.body ?? ""}\n\n--- Follow-up message received ${now} ---\n${body}`;
+      await supabase.from("replies").update({ body: appended }).eq("id", recentDup.id);
+      await supabase.from("activity_log").insert({
+        action_type: "reply_received",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "Follow-up message appended to existing reply (within 24h)",
+        outcome: "success",
+      });
+      return ok({ status: "success", classification: "DUPLICATE_APPENDED", lead_id: lead.id });
+    }
+
+    // Step 1.6 — Compute minutes between outreach send and this reply.
+    let replyMinutes: number | null = null;
+    {
+      const { data: lastSent } = await supabase
+        .from("outreach_emails")
+        .select("sent_at")
+        .eq("lead_id", lead.id)
+        .not("sent_at", "is", null)
+        .order("sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastSent?.sent_at) {
+        replyMinutes = Math.max(0, Math.round((Date.now() - new Date(lastSent.sent_at).getTime()) / 60000));
+      }
+    }
+
     const trimmedBody = (body || "").trim();
     const isStop = /\bstop\b/i.test(trimmedBody) && trimmedBody.length < 80;
     if (isStop) {
@@ -269,6 +312,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 1.0,
         actioned: true,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
@@ -317,6 +361,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "deal_updated",
@@ -396,7 +441,7 @@ Deno.serve(async (req) => {
         console.error("[receive-reply] operator notify error", e);
       }
 
-      const draft = await draftReplyWithClaude(ANTHROPIC, YES_DRAFT_PROMPT, leadContext);
+      const draft = YES_FIXED_BODY;
       const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("notifications").insert({
         lead_id: lead.id,
@@ -421,8 +466,9 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
-        draft_response: draft || null,
+        draft_response: draft,
         draft_subject: draftSubject,
+        reply_minutes_after_outreach: replyMinutes,
       });
       // Extract website goal + any client-supplied image URLs from the reply.
       const websiteGoal = await extractGoalWithClaude(ANTHROPIC, body);
@@ -464,6 +510,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: true,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
@@ -487,6 +534,7 @@ Deno.serve(async (req) => {
         actioned: false,
         draft_response: draft || null,
         draft_subject: draftSubject,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",

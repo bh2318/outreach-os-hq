@@ -60,6 +60,8 @@ export type Database = {
           id: string
           lead_id: string | null
           notes: string | null
+          paid_amount_cents: number | null
+          paid_at: string | null
           stage: string
           stage_entered_at: string
         }
@@ -70,6 +72,8 @@ export type Database = {
           id?: string
           lead_id?: string | null
           notes?: string | null
+          paid_amount_cents?: number | null
+          paid_at?: string | null
           stage?: string
           stage_entered_at?: string
         }
@@ -80,6 +84,8 @@ export type Database = {
           id?: string
           lead_id?: string | null
           notes?: string | null
+          paid_amount_cents?: number | null
+          paid_at?: string | null
           stage?: string
           stage_entered_at?: string
         }
@@ -93,8 +99,39 @@ export type Database = {
           },
         ]
       }
+      email_events: {
+        Row: {
+          created_at: string
+          email: string | null
+          event_type: string
+          id: string
+          lead_id: string | null
+          payload: Json | null
+          resend_message_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          event_type: string
+          id?: string
+          lead_id?: string | null
+          payload?: Json | null
+          resend_message_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          event_type?: string
+          id?: string
+          lead_id?: string | null
+          payload?: Json | null
+          resend_message_id?: string | null
+        }
+        Relationships: []
+      }
       followup_queue: {
         Row: {
+          approved: boolean
           business_name: string
           created_at: string
           draft_body: string | null
@@ -107,6 +144,7 @@ export type Database = {
           sequence_number: number
         }
         Insert: {
+          approved?: boolean
           business_name: string
           created_at?: string
           draft_body?: string | null
@@ -119,6 +157,7 @@ export type Database = {
           sequence_number: number
         }
         Update: {
+          approved?: boolean
           business_name?: string
           created_at?: string
           draft_body?: string | null
@@ -234,6 +273,7 @@ export type Database = {
           county: string | null
           created_at: string
           email: string | null
+          email_opened_at: string | null
           id: string
           last_contacted: string | null
           niche: string | null
@@ -262,6 +302,7 @@ export type Database = {
           county?: string | null
           created_at?: string
           email?: string | null
+          email_opened_at?: string | null
           id?: string
           last_contacted?: string | null
           niche?: string | null
@@ -290,6 +331,7 @@ export type Database = {
           county?: string | null
           created_at?: string
           email?: string | null
+          email_opened_at?: string | null
           id?: string
           last_contacted?: string | null
           niche?: string | null
@@ -461,6 +503,8 @@ export type Database = {
           intent: string | null
           lead_id: string | null
           received_at: string
+          reply_minutes_after_outreach: number | null
+          snoozed_until: string | null
           subject: string | null
         }
         Insert: {
@@ -476,6 +520,8 @@ export type Database = {
           intent?: string | null
           lead_id?: string | null
           received_at?: string
+          reply_minutes_after_outreach?: number | null
+          snoozed_until?: string | null
           subject?: string | null
         }
         Update: {
@@ -491,6 +537,8 @@ export type Database = {
           intent?: string | null
           lead_id?: string | null
           received_at?: string
+          reply_minutes_after_outreach?: number | null
+          snoozed_until?: string | null
           subject?: string | null
         }
         Relationships: [
@@ -524,10 +572,13 @@ export type Database = {
           invoice_address: string | null
           invoice_amount_cents: number
           invoice_business_name: string | null
+          last_active_tab: string | null
           min_site_score: number
           operator_city: string | null
           operator_name: string | null
           outreach_active: boolean
+          pacific_send_end: string
+          pacific_send_start: string
           payment_instructions: string | null
           payment_note: string
           payment_terms_days: number
@@ -551,10 +602,13 @@ export type Database = {
           invoice_address?: string | null
           invoice_amount_cents?: number
           invoice_business_name?: string | null
+          last_active_tab?: string | null
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
+          pacific_send_end?: string
+          pacific_send_start?: string
           payment_instructions?: string | null
           payment_note?: string
           payment_terms_days?: number
@@ -578,10 +632,13 @@ export type Database = {
           invoice_address?: string | null
           invoice_amount_cents?: number
           invoice_business_name?: string | null
+          last_active_tab?: string | null
           min_site_score?: number
           operator_city?: string | null
           operator_name?: string | null
           outreach_active?: boolean
+          pacific_send_end?: string
+          pacific_send_start?: string
           payment_instructions?: string | null
           payment_note?: string
           payment_terms_days?: number
