@@ -10,6 +10,31 @@ import { fmtRelative, type StatusTone } from "@/lib/format";
 import { logActivity } from "@/lib/activity";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Plus, X, Loader2 } from "lucide-react";
+
+const COMMON_CATEGORIES = [
+  "Roofing",
+  "Plumbing",
+  "Electrician",
+  "HVAC",
+  "Landscaping",
+  "Cleaning",
+  "Auto repair",
+  "Restaurant",
+  "Cafe",
+  "Salon / Barber",
+  "Dental",
+  "Medical / Wellness",
+  "Legal",
+  "Accounting / Financial",
+  "Real estate",
+  "Photography",
+  "Fitness / Gym",
+  "Pet services",
+  "Contractor / Construction",
+  "Retail",
+  "Other",
+];
 
 type Lead = {
   id: string;
