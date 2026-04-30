@@ -42,6 +42,15 @@ export function PipelineView() {
     });
   };
 
+  const archiveDeal = (deal: any) => {
+    action.mutate({
+      table: "deals", id: deal.id,
+      patch: { archived: true, archived_at: new Date().toISOString() },
+      log: { action_type: "system", business_name: deal.leads?.business_name, detail: "Deal archived", outcome: "warning", lead_id: deal.lead_id },
+      toast: "Deal archived",
+    });
+  };
+
   return (
     <div>
       <SectionLabel>Active pipeline</SectionLabel>
