@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     const { rawText, model } = await generateEmailWithClaude(ANTHROPIC, scenario.brief);
     const parsed = parseSubjectAndBody(rawText);
     const subject = parsed.subject;
-    const emailBody = enforceCountySignoff(parsed.body, scenario.county);
+    const emailBody = enforceSignoff(parsed.body);
     const wc = wordCount(emailBody);
 
     // Subject must be exactly "Quick question for <business name>" — no brackets, no prefix.
