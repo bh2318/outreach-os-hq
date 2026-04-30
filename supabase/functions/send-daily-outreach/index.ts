@@ -172,9 +172,10 @@ Deno.serve(async (req) => {
     // 1. Master switch + sending hours
     const { data: settings } = await supabase
       .from("settings")
-      .select("outreach_active, pacific_send_start, pacific_send_end")
+      .select("outreach_active, pacific_send_start, pacific_send_end, leads_per_cycle")
       .eq("id", 1)
       .maybeSingle();
+    const LEADS_PER_CYCLE = Math.max(1, Math.min(10, Number((settings as any)?.leads_per_cycle ?? 1)));
     if (!settings?.outreach_active) {
       return new Response(
         JSON.stringify({ success: true, skipped: true, reason: "outreach_active=false" }),
@@ -283,7 +284,8 @@ Deno.serve(async (req) => {
       return 3;
     }
     eligible.sort((a, b) => priorityRank(a) - priorityRank(b));
-    const leads = eligible.slice(0, MAX_PER_DAY);
+    const perCycleCap = Math.min(LEADS_PER_CYCLE, MAX_PER_DAY);
+    const leads = eligible.slice(0, perCycleCap);
 
     if (!leads.length) {
       return new Response(
