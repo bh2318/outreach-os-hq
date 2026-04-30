@@ -338,7 +338,14 @@ function Workspace({ lead }: { lead: Lead }) {
   const hasMock = lead.status === "mock-ready" || lead.status === "mock-sent" || !!mock?.preview_url;
 
   const handleGenerate = async () => {
+    // Optimistic immediate update so UI never freezes (<200ms).
+    qc.setQueryData(["mock-studio-leads"], (prev: any) =>
+      Array.isArray(prev)
+        ? prev.map((l: Lead) => (l.id === lead.id ? { ...l, status: "generating" } : l))
+        : prev
+    );
     try {
+      // Flip DB status right away so the loading state is consistent.
       await supabase.from("leads").update({ status: "generating" }).eq("id", lead.id);
       if (mock?.id) {
         await supabase.from("mock_sites").update({ status: "generating" }).eq("id", mock.id);
@@ -349,15 +356,34 @@ function Workspace({ lead }: { lead: Lead }) {
           requested_at: new Date().toISOString(),
         });
       }
-      await logActivity({
-        action_type: "mock_generated",
-        business_name: lead.business_name,
-        lead_id: lead.id,
-        detail: "Mock generation started",
-        outcome: "success",
-      });
-      qc.invalidateQueries();
-      toast.success("Mock generation started");
+
+      const selectedImageUrls = Array.from(selected);
+      // Include client-supplied images first if any
+      const allImages = [...clientImages, ...selectedImageUrls];
+
+      // Fire the long-running generation. We do NOT await the response in the
+      // UI handler — realtime updates on leads/mock_sites will refresh us when
+      // it finishes (success or failure).
+      supabase.functions
+        .invoke("generate-mock", {
+          body: { lead_id: lead.id, selected_images: allImages },
+        })
+        .then(({ error }) => {
+          if (error) {
+            console.error("generate-mock error", error);
+            toast.error("Mock generation failed — check activity log");
+          } else {
+            toast.success("Mock website ready");
+          }
+          qc.invalidateQueries();
+        })
+        .catch((e) => {
+          console.error("generate-mock invoke failed", e);
+          toast.error("Mock generation failed");
+          qc.invalidateQueries();
+        });
+
+      toast.success("Building your mock website…");
     } catch (e: any) {
       toast.error(e.message ?? "Failed to start generation");
     }
