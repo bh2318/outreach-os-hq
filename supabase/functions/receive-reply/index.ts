@@ -312,6 +312,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 1.0,
         actioned: true,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
@@ -360,6 +361,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "deal_updated",
@@ -439,7 +441,7 @@ Deno.serve(async (req) => {
         console.error("[receive-reply] operator notify error", e);
       }
 
-      const draft = await draftReplyWithClaude(ANTHROPIC, YES_DRAFT_PROMPT, leadContext);
+      const draft = YES_FIXED_BODY;
       const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
       await supabase.from("notifications").insert({
         lead_id: lead.id,
@@ -464,8 +466,9 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
-        draft_response: draft || null,
+        draft_response: draft,
         draft_subject: draftSubject,
+        reply_minutes_after_outreach: replyMinutes,
       });
       // Extract website goal + any client-supplied image URLs from the reply.
       const websiteGoal = await extractGoalWithClaude(ANTHROPIC, body);
@@ -507,6 +510,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: true,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
@@ -530,6 +534,7 @@ Deno.serve(async (req) => {
         actioned: false,
         draft_response: draft || null,
         draft_subject: draftSubject,
+        reply_minutes_after_outreach: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
