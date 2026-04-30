@@ -118,6 +118,7 @@ function useMockStudioLeads() {
           "id,business_name,city,state,county,niche,phone,email,rating,review_count,website_goal,client_assets,unsplash_images,status,created_at"
         )
         .in("status", ACTIVE_STATUSES)
+        .eq("archived", false)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Lead[];
