@@ -124,6 +124,15 @@ function intentBadge(intent: string): { tone: StatusTone; label: string; sortKey
 export function DashboardView() {
   const { data: m } = useDashboardMetrics();
   const { data: replies } = useReplies();
+  const { data: setup } = useSetupStatus();
+
+  const [showOverlay, setShowOverlay] = useState(false);
+  useEffect(() => {
+    if (!setup) return;
+    const dismissed = localStorage.getItem(SETUP_KEY) === "true";
+    if (dismissed) return;
+    if (setup.leadsCount === 0 && !setup.systemActive) setShowOverlay(true);
+  }, [setup]);
 
   const active = !!m?.outreachActive;
   const unactioned = m?.unactionedReplies ?? 0;
