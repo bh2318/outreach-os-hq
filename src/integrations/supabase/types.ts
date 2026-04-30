@@ -55,6 +55,8 @@ export type Database = {
       deals: {
         Row: {
           actual_value: number | null
+          archived: boolean
+          archived_at: string | null
           created_at: string
           estimated_value: number | null
           id: string
@@ -67,6 +69,8 @@ export type Database = {
         }
         Insert: {
           actual_value?: number | null
+          archived?: boolean
+          archived_at?: string | null
           created_at?: string
           estimated_value?: number | null
           id?: string
@@ -79,6 +83,8 @@ export type Database = {
         }
         Update: {
           actual_value?: number | null
+          archived?: boolean
+          archived_at?: string | null
           created_at?: string
           estimated_value?: number | null
           id?: string
@@ -132,6 +138,8 @@ export type Database = {
       followup_queue: {
         Row: {
           approved: boolean
+          archived: boolean
+          archived_at: string | null
           business_name: string
           created_at: string
           draft_body: string | null
@@ -145,6 +153,8 @@ export type Database = {
         }
         Insert: {
           approved?: boolean
+          archived?: boolean
+          archived_at?: string | null
           business_name: string
           created_at?: string
           draft_body?: string | null
@@ -158,6 +168,8 @@ export type Database = {
         }
         Update: {
           approved?: boolean
+          archived?: boolean
+          archived_at?: string | null
           business_name?: string
           created_at?: string
           draft_body?: string | null
@@ -267,6 +279,7 @@ export type Database = {
         Row: {
           address: string | null
           archived: boolean
+          archived_at: string | null
           business_name: string
           city: string | null
           client_assets: Json | null
@@ -296,6 +309,7 @@ export type Database = {
         Insert: {
           address?: string | null
           archived?: boolean
+          archived_at?: string | null
           business_name: string
           city?: string | null
           client_assets?: Json | null
@@ -325,6 +339,7 @@ export type Database = {
         Update: {
           address?: string | null
           archived?: boolean
+          archived_at?: string | null
           business_name?: string
           city?: string | null
           client_assets?: Json | null
@@ -355,6 +370,8 @@ export type Database = {
       }
       mock_sites: {
         Row: {
+          archived: boolean
+          archived_at: string | null
           expires_at: string | null
           generated_at: string | null
           id: string
@@ -367,6 +384,8 @@ export type Database = {
           status: string
         }
         Insert: {
+          archived?: boolean
+          archived_at?: string | null
           expires_at?: string | null
           generated_at?: string | null
           id?: string
@@ -379,6 +398,8 @@ export type Database = {
           status?: string
         }
         Update: {
+          archived?: boolean
+          archived_at?: string | null
           expires_at?: string | null
           generated_at?: string | null
           id?: string
@@ -513,6 +534,8 @@ export type Database = {
       replies: {
         Row: {
           actioned: boolean
+          archived: boolean
+          archived_at: string | null
           body: string | null
           classified_at: string | null
           confidence: number | null
@@ -530,6 +553,8 @@ export type Database = {
         }
         Insert: {
           actioned?: boolean
+          archived?: boolean
+          archived_at?: string | null
           body?: string | null
           classified_at?: string | null
           confidence?: number | null
@@ -547,6 +572,8 @@ export type Database = {
         }
         Update: {
           actioned?: boolean
+          archived?: boolean
+          archived_at?: string | null
           body?: string | null
           classified_at?: string | null
           confidence?: number | null
