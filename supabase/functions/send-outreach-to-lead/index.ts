@@ -155,7 +155,7 @@ Write the cold email now.`;
       action_type: "email_sent",
       business_name: lead.business_name,
       lead_id: lead.id,
-      detail: `test outreach sent to ${TEST_RECIPIENT}`,
+      detail: `outreach sent to ${destEmail}`,
       outcome: "success",
     });
 
