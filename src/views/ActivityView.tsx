@@ -35,12 +35,28 @@ export function ActivityView() {
   }, [data, q]);
 
   const exportCsv = () => {
-    const rows = [["timestamp", "action_type", "business_name", "outcome", "detail"]];
-    (filtered ?? []).forEach(r => rows.push([r.created_at, r.action_type, r.business_name ?? "", r.outcome, r.detail ?? ""]));
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const header = ["Timestamp", "Business Name", "Action Type", "Description"];
+    const rows = [header];
+    (filtered ?? []).forEach((r) =>
+      rows.push([
+        new Date(r.created_at).toISOString(),
+        r.business_name ?? "",
+        r.action_type ?? "",
+        r.detail ?? "",
+      ])
+    );
+    const csv = rows
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `activity-log-${Date.now()}.csv`; a.click();
+    const today = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `outreach-os-activity-log-${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success("Activity log exported");
   };
