@@ -1,7 +1,9 @@
 // scrape-places
-// Calls Google Places Text Search + Place Details for a category+city query.
-// Scores every result. No-website businesses are always highest priority.
-// Upserts into leads table keyed on place_id.
+// Called by send-daily-outreach when the lead queue is empty.
+// Searches Google Places for a niche+city query, scores every result,
+// and upserts qualified leads into the leads table.
+// Priority: no-website businesses always score highest.
+// No-website + high reviews = best possible lead.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -12,25 +14,30 @@ const corsHeaders = {
 };
 
 const CHAIN_NAMES = [
-  "mcdonald", "subway", "starbucks", "walmart", "target", "home depot", "lowe",
-  "cvs", "walgreen", "7-eleven", "domino", "pizza hut", "burger king", "wendy",
+  "mcdonald", "subway", "starbucks", "walmart", "target", "home depot", "lowes",
+  "cvs", "walgreens", "7-eleven", "dominos", "pizza hut", "burger king", "wendys",
   "taco bell", "kfc", "chipotle", "dunkin", "great clips", "sport clips",
   "anytime fitness", "planet fitness", "jiffy lube", "valvoline", "midas",
-  "firestone", "autozone", "o'reilly", "napa auto", "ace hardware",
+  "firestone", "autozone", "oreilly", "napa auto", "ace hardware", "dollar general",
+  "dollar tree", "family dollar", "ross", "tj maxx", "marshalls", "old navy",
+  "gap", "h&m", "forever 21", "best buy", "office depot", "staples",
 ];
 
 function isChain(name: string): boolean {
   const lower = name.toLowerCase();
-  return CHAIN_NAMES.some((c) => lower.includes(c));
+  return CHAIN_NAMES.some((chain) => lower.includes(chain));
 }
 
-function isValidPhone(phone: string | null): boolean {
-  if (!phone) return false;
-  const digits = phone.replace(/\D/g, "");
-  return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+type AddrComp = { long_name: string; short_name: string; types: string[] };
+
+function pickComp(comps: AddrComp[] | undefined, type: string, short = false): string | null {
+  if (!comps) return null;
+  const c = comps.find((x) => x.types.includes(type));
+  if (!c) return null;
+  return short ? c.short_name : c.long_name;
 }
 
-async function getPageSpeedScore(url: string, apiKey: string): Promise<number | null> {
+async function getPageSpeedMobileScore(url: string, apiKey: string): Promise<number | null> {
   try {
     const psiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&category=performance&key=${apiKey}`;
     const res = await fetch(psiUrl);
@@ -44,47 +51,31 @@ async function getPageSpeedScore(url: string, apiKey: string): Promise<number | 
   }
 }
 
-function calculateScore(hasWebsite: boolean, pageSpeedScore: number | null, reviewCount: number, rating: number): number {
-  // No website businesses start at 100 — they are always the primary target
-  if (!hasWebsite) {
+function calculateScore(websiteUrl: string | null, pageSpeedScore: number | null, reviewCount: number, rating: number): number {
+  if (!websiteUrl) {
     let score = 100;
-    // Review count bonus — more reviews means more established business
     if (reviewCount >= 200) score += 75;
     else if (reviewCount >= 100) score += 50;
     else if (reviewCount >= 50) score += 30;
-    // Rating bonus
     if (rating >= 4.5) score += 25;
     else if (rating >= 4.0) score += 15;
     return score;
   }
-  // Has website — score based on how bad the website is
   let score = 0;
   if (pageSpeedScore !== null) {
     if (pageSpeedScore < 30) score += 40;
-    else if (pageSpeedScore <= 50) score += 25;
+    else if (pageSpeedScore < 50) score += 25;
   } else {
-    score += 20; // unknown score treated as poor
+    score += 20;
   }
   return score;
 }
 
-function getTier(hasWebsite: boolean, reviewCount: number): number {
-  if (!hasWebsite) {
-    if (reviewCount >= 200) return 1;
-    if (reviewCount >= 100) return 2;
-    if (reviewCount >= 50) return 3;
-    return 4;
-  }
-  return 5; // has website — lowest priority
-}
-
-type AddrComp = { long_name: string; short_name: string; types: string[] };
-
-function pickComp(comps: AddrComp[] | undefined, type: string, short = false): string | null {
-  if (!comps) return null;
-  const c = comps.find((x) => x.types.includes(type));
-  if (!c) return null;
-  return short ? c.short_name : c.long_name;
+function getTier(websiteUrl: string | null, score: number): number {
+  if (!websiteUrl) return 1;
+  if (score >= 40) return 2;
+  if (score >= 20) return 3;
+  return 4;
 }
 
 Deno.serve(async (req) => {
@@ -93,7 +84,7 @@ Deno.serve(async (req) => {
   try {
     const { niche, city } = await req.json();
     if (!niche || !city) {
-      return new Response(JSON.stringify({ success: false, error: "niche and city required" }), {
+      return new Response(JSON.stringify({ success: false, error: "niche and city are required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -106,107 +97,76 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // Text Search
     const query = encodeURIComponent(`${niche} in ${city}`);
     const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${query}&key=${PLACES_KEY}`;
     const searchRes = await fetch(searchUrl);
     const searchData = await searchRes.json();
-
     if (searchData.status && searchData.status !== "OK" && searchData.status !== "ZERO_RESULTS") {
-      throw new Error(`Places search failed: ${searchData.status}`);
+      throw new Error(`Places search failed: ${searchData.status} ${searchData.error_message ?? ""}`);
     }
-
     const results = (searchData.results ?? []).slice(0, 20);
-    console.log(`[scrape-places] "${niche} in ${city}" — ${results.length} results`);
 
-    const inserted: string[] = [];
-    const skipped: string[] = [];
+    const businesses: Array<Record<string, unknown>> = [];
 
     for (const r of results) {
       const placeId: string = r.place_id;
 
-      // Skip if already in database
+      if (isChain(r.name ?? "")) {
+        console.log(`[scrape-places] Chain skipped: ${r.name}`);
+        continue;
+      }
+
       const { data: existing } = await supabase
         .from("leads")
         .select("id")
         .eq("place_id", placeId)
         .maybeSingle();
       if (existing) {
-        skipped.push(`${r.name} — duplicate`);
+        console.log(`[scrape-places] Duplicate skipped: ${r.name}`);
         continue;
       }
 
-      // Place Details
       const fields = "name,formatted_phone_number,formatted_address,website,rating,user_ratings_total,address_components,place_id";
       const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${PLACES_KEY}`;
       const dRes = await fetch(detailsUrl);
       const dJson = await dRes.json();
       const d = dJson.result ?? {};
 
-      const businessName: string = d.name ?? r.name ?? "";
-      const phone: string | null = d.formatted_phone_number ?? null;
-      const websiteUrl: string | null = d.website ?? null;
-      const reviewCount: number = typeof d.user_ratings_total === "number" ? d.user_ratings_total : (r.user_ratings_total ?? 0);
-      const rating: number = typeof d.rating === "number" ? d.rating : (r.rating ?? 0);
       const comps: AddrComp[] = d.address_components ?? [];
       const cityName = pickComp(comps, "locality") ?? pickComp(comps, "postal_town") ?? city;
-      const stateName = pickComp(comps, "administrative_area_level_1", true) ?? "WA";
+      const stateName = pickComp(comps, "administrative_area_level_1", true);
       const countyName = pickComp(comps, "administrative_area_level_2");
+      const websiteUrl: string | null = d.website ?? null;
+      const reviewCount: number = typeof d.user_ratings_total === "number" ? d.user_ratings_total : (typeof r.user_ratings_total === "number" ? r.user_ratings_total : 0);
+      const rating: number = typeof d.rating === "number" ? d.rating : (typeof r.rating === "number" ? r.rating : 0);
+      const phone: string | null = d.formatted_phone_number ?? null;
 
-      // Skip chains
-      if (isChain(businessName)) {
-        skipped.push(`${businessName} — chain`);
-        continue;
-      }
-
-      // Skip businesses with fewer than 5 reviews
       if (reviewCount < 5) {
-        skipped.push(`${businessName} — insufficient reviews (${reviewCount})`);
+        console.log(`[scrape-places] Too few reviews skipped: ${r.name} (${reviewCount} reviews)`);
         continue;
       }
 
-      // Skip if no valid contact method
-      const hasValidPhone = isValidPhone(phone);
-      const hasWebsite = !!websiteUrl;
-      if (!hasValidPhone && !hasWebsite) {
-        skipped.push(`${businessName} — no contact method`);
+      if (!phone && !websiteUrl) {
+        console.log(`[scrape-places] No contact method skipped: ${r.name}`);
         continue;
       }
 
-      // Get PageSpeed score only for businesses with websites
       let pageSpeedScore: number | null = null;
-      if (hasWebsite && websiteUrl) {
-        pageSpeedScore = await getPageSpeedScore(websiteUrl, PLACES_KEY);
+      if (websiteUrl) {
+        pageSpeedScore = await getPageSpeedMobileScore(websiteUrl, PLACES_KEY);
       }
 
-      // Calculate score and tier
-      const siteScore = calculateScore(hasWebsite, pageSpeedScore, reviewCount, rating);
-      const tier = getTier(hasWebsite, reviewCount);
+      const siteScore = calculateScore(websiteUrl, pageSpeedScore, reviewCount, rating);
+      const tier = getTier(websiteUrl, siteScore);
 
-      // Skip businesses with websites that score below threshold
-      // No-website businesses always qualify regardless
-      if (hasWebsite && siteScore < 20) {
-        skipped.push(`${businessName} — website too good (score ${siteScore})`);
+      if (tier === 4) {
+        console.log(`[scrape-places] Good website skipped: ${r.name} (score ${siteScore})`);
         continue;
-      }
-
-      // Construct contact email
-      let email: string | null = null;
-      if (hasWebsite && websiteUrl) {
-        try {
-          const u = new URL(websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`);
-          const host = u.hostname.replace(/^www\./i, "");
-          if (host && host.includes(".")) {
-            email = `contact@${host}`;
-          }
-        } catch {
-          email = null;
-        }
       }
 
       const lead = {
-        business_name: businessName,
-        email,
+        business_name: d.name ?? r.name,
+        email: null as string | null,
         phone,
         address: d.formatted_address ?? r.formatted_address ?? null,
         city: cityName,
@@ -218,33 +178,50 @@ Deno.serve(async (req) => {
         place_id: placeId,
         status: "new",
         site_score: siteScore,
-        tier,
         niche,
         archived: false,
       };
 
-      const { error: insErr } = await supabase.from("leads").insert(lead);
+      const { data: ins, error: insErr } = await supabase
+        .from("leads")
+        .insert(lead)
+        .select("id")
+        .single();
+
       if (insErr) {
-        console.error(`[scrape-places] insert failed for ${businessName}:`, insErr);
-        skipped.push(`${businessName} — insert error`);
-      } else {
-        inserted.push(`${businessName} — tier ${tier} — score ${siteScore} — ${hasWebsite ? "has website" : "NO WEBSITE"} — ${reviewCount} reviews`);
+        console.error("[scrape-places] insert failed", insErr);
+        continue;
       }
+
+      businesses.push({
+        lead_id: ins?.id,
+        place_id: placeId,
+        business_name: lead.business_name,
+        phone: lead.phone,
+        rating,
+        review_count: reviewCount,
+        website_url: lead.website_url,
+        has_website: !!lead.website_url,
+        site_score: siteScore,
+        tier,
+        status: "new",
+        city: lead.city,
+        state: lead.state,
+      });
     }
 
-    console.log(`[scrape-places] inserted ${inserted.length}, skipped ${skipped.length}`);
+    const sorted = businesses.sort((a, b) => {
+      const ta = a.tier as number;
+      const tb = b.tier as number;
+      if (ta !== tb) return ta - tb;
+      if (ta === 1) return (b.review_count as number) - (a.review_count as number);
+      return (b.site_score as number) - (a.site_score as number);
+    });
 
-    return new Response(JSON.stringify({
-      success: true,
-      inserted: inserted.length,
-      skipped: skipped.length,
-      businesses: inserted,
-      skippedReasons: skipped,
-    }), {
+    return new Response(JSON.stringify({ success: true, count: sorted.length, businesses: sorted }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-
   } catch (e) {
     console.error("[scrape-places] error", e);
     return new Response(JSON.stringify({ success: false, error: String(e instanceof Error ? e.message : e) }), {
