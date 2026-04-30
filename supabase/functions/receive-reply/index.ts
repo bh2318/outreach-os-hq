@@ -247,6 +247,8 @@ Deno.serve(async (req) => {
       return ok({ status: "success", message: "no matching lead found", sender: from });
     }
 
+    const now = new Date().toISOString();
+
     // Step 2 — STOP detection (highest priority — before classification).
     const trimmedBody = (body || "").trim();
     const isStop = /\bstop\b/i.test(trimmedBody) && trimmedBody.length < 80;
@@ -262,9 +264,9 @@ Deno.serve(async (req) => {
         from_email: from,
         subject: subject ?? "",
         body,
-        received_at: now ?? new Date().toISOString(),
+        received_at: now,
         intent: "unsubscribe",
-        classified_at: new Date().toISOString(),
+        classified_at: now,
         confidence: 1.0,
         actioned: true,
       });
@@ -281,8 +283,50 @@ Deno.serve(async (req) => {
     // Step 3 — signed agreement detection (advances pipeline directly).
     const lowerBody = trimmedBody.toLowerCase();
     const looksLikeAgreement =
-      /(signed|signature|agreement|contract)/i.test(lowerBody) &&
-      /(attached|enclosed|here|sending|sent)/i.test(lowerBody);
+      /(signed|signature|agreement|contract)/.test(lowerBody) &&
+      /(attached|enclosed|here|sending|sent|back)/.test(lowerBody);
+    if (looksLikeAgreement) {
+      console.log(`[receive-reply] signed agreement detected for ${lead.business_name}`);
+      // Find latest deal for lead, or create one in agreement_received stage.
+      const { data: existingDeal } = await supabase
+        .from("deals")
+        .select("id")
+        .eq("lead_id", lead.id)
+        .order("stage_entered_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingDeal?.id) {
+        await supabase
+          .from("deals")
+          .update({ stage: "agreement_received", stage_entered_at: now })
+          .eq("id", existingDeal.id);
+      } else {
+        await supabase.from("deals").insert({
+          lead_id: lead.id,
+          stage: "agreement_received",
+          stage_entered_at: now,
+        });
+      }
+      await supabase.from("replies").insert({
+        lead_id: lead.id,
+        from_email: from,
+        subject: subject ?? "",
+        body,
+        received_at: now,
+        intent: "interested",
+        classified_at: now,
+        confidence: 0.95,
+        actioned: false,
+      });
+      await supabase.from("activity_log").insert({
+        action_type: "deal_updated",
+        business_name: lead.business_name,
+        lead_id: lead.id,
+        detail: "signed agreement received — pipeline advanced to Agreement Received",
+        outcome: "success",
+      });
+      return ok({ status: "success", classification: "AGREEMENT", lead_id: lead.id });
+    }
 
     // Step 4 — classify
     let classification: "YES" | "NO" | "MAYBE";
@@ -294,7 +338,6 @@ Deno.serve(async (req) => {
     }
     console.log(`[receive-reply] classified=${classification} lead=${lead.business_name}`);
 
-    const now = new Date().toISOString();
 
     // Pull richer lead info for draft personalization (county etc.)
     const { data: leadFull } = await supabase
