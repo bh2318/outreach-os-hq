@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/Badge";
 import { Chip } from "@/components/Chip";
 import { SectionLabel } from "@/components/SectionLabel";
-import { logActivity } from "@/lib/activity";
+
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -338,7 +338,14 @@ function Workspace({ lead }: { lead: Lead }) {
   const hasMock = lead.status === "mock-ready" || lead.status === "mock-sent" || !!mock?.preview_url;
 
   const handleGenerate = async () => {
+    // Optimistic immediate update so UI never freezes (<200ms).
+    qc.setQueryData(["mock-studio-leads"], (prev: any) =>
+      Array.isArray(prev)
+        ? prev.map((l: Lead) => (l.id === lead.id ? { ...l, status: "generating" } : l))
+        : prev
+    );
     try {
+      // Flip DB status right away so the loading state is consistent.
       await supabase.from("leads").update({ status: "generating" }).eq("id", lead.id);
       if (mock?.id) {
         await supabase.from("mock_sites").update({ status: "generating" }).eq("id", mock.id);
@@ -349,15 +356,34 @@ function Workspace({ lead }: { lead: Lead }) {
           requested_at: new Date().toISOString(),
         });
       }
-      await logActivity({
-        action_type: "mock_generated",
-        business_name: lead.business_name,
-        lead_id: lead.id,
-        detail: "Mock generation started",
-        outcome: "success",
-      });
-      qc.invalidateQueries();
-      toast.success("Mock generation started");
+
+      const selectedImageUrls = Array.from(selected);
+      // Include client-supplied images first if any
+      const allImages = [...clientImages, ...selectedImageUrls];
+
+      // Fire the long-running generation. We do NOT await the response in the
+      // UI handler — realtime updates on leads/mock_sites will refresh us when
+      // it finishes (success or failure).
+      supabase.functions
+        .invoke("generate-mock", {
+          body: { lead_id: lead.id, selected_images: allImages },
+        })
+        .then(({ error }) => {
+          if (error) {
+            console.error("generate-mock error", error);
+            toast.error("Mock generation failed — check activity log");
+          } else {
+            toast.success("Mock website ready");
+          }
+          qc.invalidateQueries();
+        })
+        .catch((e) => {
+          console.error("generate-mock invoke failed", e);
+          toast.error("Mock generation failed");
+          qc.invalidateQueries();
+        });
+
+      toast.success("Building your mock website…");
     } catch (e: any) {
       toast.error(e.message ?? "Failed to start generation");
     }
@@ -583,16 +609,21 @@ function Workspace({ lead }: { lead: Lead }) {
               </button>
             </div>
             <div className="flex-1" />
-            <button className="btn-ghost" disabled={!hasMock}>
+            <button
+              className="btn-ghost"
+              disabled={!hasMock || isGenerating}
+              onClick={handleGenerate}
+            >
               <RefreshCw className="w-3 h-3" /> Regenerate
             </button>
             <button
               onClick={() => setShowFinalize(true)}
-              disabled={!hasMock}
+              disabled={!hasMock || lead.status === "mock-sent"}
               className="btn-green"
               style={{ paddingLeft: 14, paddingRight: 14 }}
             >
-              <Send className="w-3 h-3" /> Finalize and Send
+              <Send className="w-3 h-3" />{" "}
+              {lead.status === "mock-sent" ? "Sent" : "Finalize and Send"}
             </button>
           </div>
 
@@ -602,7 +633,9 @@ function Workspace({ lead }: { lead: Lead }) {
           >
             {isGenerating ? (
               <div className="flex flex-col items-center gap-4 py-16 px-6 w-full max-w-md">
-                <div className="text-[12px] text-muted-foreground">Building your mock website</div>
+                <div className="text-[12px] text-muted-foreground">
+                  Building your mock website — this usually takes about 30 seconds
+                </div>
                 <div className="w-full h-1.5 rounded-full bg-secondary overflow-hidden">
                   <div
                     className="h-full bg-primary-hover rounded-full"
@@ -719,21 +752,31 @@ function FinalizeOverlay({
   const [agreement, setAgreement] = useState(defaultAgreement);
   const [submitting, setSubmitting] = useState(false);
 
+  const qc = useQueryClient();
   const handleConfirm = async () => {
+    if (!previewUrl) {
+      toast.error("Generate the mock first");
+      return;
+    }
     setSubmitting(true);
     try {
-      // Wiring to actually send is in the next prompt. For now: log + close.
-      await logActivity({
-        action_type: "mock_sent",
-        business_name: lead.business_name,
-        lead_id: lead.id,
-        detail: "Operator clicked Confirm and Send in Mock Studio finalize overlay",
-        outcome: "success",
+      const { data, error } = await supabase.functions.invoke("send-mock-delivery", {
+        body: {
+          lead_id: lead.id,
+          subject,
+          email_body: emailBody,
+          agreement,
+        },
       });
-      toast.success("Saved — sending will be wired in the next step");
+      if (error || (data && (data as any).error)) {
+        const msg = (error as any)?.message ?? (data as any)?.error ?? "Send failed";
+        throw new Error(String(msg));
+      }
+      toast.success("Mock + agreement sent");
+      qc.invalidateQueries();
       onClose();
     } catch (e: any) {
-      toast.error(e.message ?? "Failed");
+      toast.error(e.message ?? "Failed to send");
     } finally {
       setSubmitting(false);
     }
