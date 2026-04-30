@@ -215,7 +215,9 @@ function ReplyRow({ reply }: { reply: Reply }) {
 
       {/* Line 6 — buttons */}
       <div className="mt-3 flex items-center gap-2">
-        {m.group === "stop" ? null : m.group === "no" ? (
+        {m.group === "stop" ? (
+          <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
+        ) : m.group === "no" ? (
           <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
         ) : (
           <>
@@ -233,6 +235,7 @@ function ReplyRow({ reply }: { reply: Reply }) {
             >
               {busy ? "Sending…" : "Confirm and send"}
             </button>
+            <button className="btn-ghost ml-auto" onClick={archive} disabled={busy}>Archive</button>
           </>
         )}
       </div>
