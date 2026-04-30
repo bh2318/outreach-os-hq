@@ -87,6 +87,7 @@ export function SettingsView() {
         payment_terms_days: data.payment_terms_days ?? 0,
         payment_note: (data as any).payment_note || "",
         min_site_score: data.min_site_score ?? 45,
+        leads_per_cycle: (data as any).leads_per_cycle ?? 1,
         outreach_active: !!data.outreach_active,
         reply_pipeline_active: !!(data as any).reply_pipeline_active,
       });
