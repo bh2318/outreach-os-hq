@@ -11,7 +11,8 @@ export type TabId =
   | "followups"
   | "pipeline"
   | "activity"
-  | "settings";
+  | "settings"
+  | "clients";
 
 const TABS: { id: TabId; label: string; badgeKey?: "leads" | "mocks" | "replies" | "followups"; tone?: StatusTone }[] = [
   { id: "dashboard", label: "Dashboard" },
@@ -20,6 +21,7 @@ const TABS: { id: TabId; label: string; badgeKey?: "leads" | "mocks" | "replies"
   { id: "replies", label: "Replies", badgeKey: "replies", tone: "green" },
   { id: "followups", label: "Follow-Ups", badgeKey: "followups", tone: "amber" },
   { id: "pipeline", label: "Pipeline" },
+  { id: "clients", label: "Client History" },
   { id: "activity", label: "Activity Log" },
   { id: "settings", label: "Settings" },
 ];
