@@ -86,48 +86,29 @@ export function ClientHistoryView() {
                     </div>
                   </div>
                 </div>
-
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {lead?.phone && (
                     <div className="text-[11px]">
                       <span className="text-muted-foreground">Phone </span>
-                      <a href={`tel:${lead.phone}`} className="text-foreground hover:text-primary">
-                        {lead.phone}
-                      </a>
+                      <a href={`tel:${lead.phone}`} className="text-foreground hover:text-primary">{lead.phone}</a>
                     </div>
                   )}
                   {lead?.email && (
                     <div className="text-[11px]">
                       <span className="text-muted-foreground">Email </span>
-                      <a href={`mailto:${lead.email}`} className="text-foreground hover:text-primary">
-                        {lead.email}
-                      </a>
+                      <a href={`mailto:${lead.email}`} className="text-foreground hover:text-primary">{lead.email}</a>
                     </div>
                   )}
                   {deliveredUrl && (
                     <div className="text-[11px] sm:col-span-2">
                       <span className="text-muted-foreground">Site delivered </span>
-                      
-                        href={deliveredUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary hover:underline break-all"
-                      >
-                        {deliveredUrl}
-                      </a>
+                      <a href={deliveredUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all">{deliveredUrl}</a>
                     </div>
                   )}
                   {lead?.website_url && !deliveredUrl && (
                     <div className="text-[11px] sm:col-span-2">
                       <span className="text-muted-foreground">Original site </span>
-                      
-                        href={lead.website_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-muted-foreground hover:text-foreground break-all"
-                      >
-                        {lead.website_url}
-                      </a>
+                      <a href={lead.website_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground break-all">{lead.website_url}</a>
                     </div>
                   )}
                 </div>
