@@ -44,7 +44,6 @@ function daysSince(iso: string) {
 
 export function ClientHistoryView() {
   const { data, isLoading } = useClientHistory();
-
   const totalRevenue = (data ?? []).reduce((sum, d) => sum + (d.actual_value ?? 0), 0);
 
   return (
