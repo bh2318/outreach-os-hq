@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { PriorityCard } from "@/components/PriorityCard";
 import { Badge } from "@/components/Badge";
 import { Chip } from "@/components/Chip";
-import { fmtRelative, type StatusTone } from "@/lib/format";
+import { type StatusTone } from "@/lib/format";
 import { toast } from "sonner";
 
 type FollowupRow = {
@@ -19,7 +19,6 @@ type FollowupRow = {
   due_date: string;
   sent: boolean;
   created_at: string;
-  // joined lead
   leads?: {
     niche: string | null;
     city: string | null;
@@ -29,10 +28,14 @@ type FollowupRow = {
 };
 
 function urgencyTone(seq: number): { tone: StatusTone; label: string } {
-  // sequence_number: 2 = first follow-up (day 4), 3 = second (day 9), 4 = final (day 18)
   if (seq >= 4) return { tone: "red", label: "Final follow-up — day 18" };
   if (seq === 3) return { tone: "amber", label: "Day 9 follow-up" };
   return { tone: "amber", label: "Day 4 follow-up" };
+}
+
+function daysSince(iso: string | null) {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
 function useFollowupQueue() {
@@ -78,6 +81,7 @@ export function FollowUpsView() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   function getDraft(row: FollowupRow) {
     return edits[row.id] ?? {
@@ -95,17 +99,16 @@ export function FollowUpsView() {
       });
       if (error) throw error;
       if (!res?.success) throw new Error(res?.error ?? "Send failed");
-      // Mark queue row as sent
       await supabase
         .from("followup_queue")
         .update({ sent: true, sent_at: new Date().toISOString() })
         .eq("id", row.id);
-      // Final follow-up (sequence 4 = day 18) closes out the lead.
       if (row.sequence_number >= 4) {
         await supabase.from("leads").update({ status: "follow-up-complete" }).eq("id", row.lead_id);
       }
-      toast.success(res.delivered ? "Follow-up sent" : "Follow-up queued (sending disabled)");
+      toast.success("Follow-up sent");
       setOpenId(null);
+      setDismissed((prev) => new Set([...prev, row.id]));
       qc.invalidateQueries();
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to send");
@@ -119,9 +122,10 @@ export function FollowUpsView() {
     try {
       await supabase
         .from("followup_queue")
-        .update({ archived: true, archived_at: new Date().toISOString() })
+        .update({ archived: true })
         .eq("id", row.id);
       toast.success("Follow-up archived");
+      setDismissed((prev) => new Set([...prev, row.id]));
       qc.invalidateQueries();
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to archive");
@@ -130,18 +134,23 @@ export function FollowUpsView() {
     }
   }
 
+  const visible = (data ?? []).filter((r) => !dismissed.has(r.id));
+
   return (
     <div>
       <SectionLabel>Follow-ups due</SectionLabel>
-      {isLoading ? null : !data?.length ? (
-        <EmptyState>No follow-ups due right now.</EmptyState>
+      {isLoading ? null : !visible.length ? (
+        <EmptyState>
+          No follow-ups due right now. Follow-ups appear here on days 4, 9, and 18 after outreach for leads that have not replied.
+        </EmptyState>
       ) : (
         <div className="space-y-2">
-          {data.map((row) => {
+          {visible.map((row) => {
             const u = urgencyTone(row.sequence_number);
             const isOpen = openId === row.id;
             const draft = getDraft(row);
             const lead = row.leads;
+            const daysAgo = daysSince(lead?.last_contacted ?? null);
             return (
               <div key={row.id}>
                 <PriorityCard
@@ -150,9 +159,10 @@ export function FollowUpsView() {
                   subtitle={`${lead?.niche ?? "—"} · ${lead?.city ?? "—"}${lead?.state ? `, ${lead.state}` : ""}`}
                   chips={
                     <>
-                      <Chip>#{row.sequence_number - 1} follow-up</Chip>
-                      {lead?.last_contacted && <Chip>Last contacted {fmtRelative(lead.last_contacted)}</Chip>}
-                      <Chip>Due {row.due_date}</Chip>
+                      <Chip>Follow-up {row.sequence_number - 1} of 3</Chip>
+                      {daysAgo !== null && (
+                        <Chip>Outreach sent {daysAgo}d ago</Chip>
+                      )}
                     </>
                   }
                   badge={<Badge tone={u.tone}>{u.label}</Badge>}
@@ -163,7 +173,7 @@ export function FollowUpsView() {
                         disabled={busyId === row.id}
                         onClick={() => setOpenId(isOpen ? null : row.id)}
                       >
-                        {isOpen ? "Hide draft" : "Generate and send"}
+                        {isOpen ? "Hide draft" : "Review and send"}
                       </button>
                       <button
                         className="btn-ghost"
@@ -199,7 +209,7 @@ export function FollowUpsView() {
                         disabled={busyId === row.id || !draft.body.trim()}
                         onClick={() => send(row)}
                       >
-                        {busyId === row.id ? "Sending…" : "Send follow-up"}
+                        {busyId === row.id ? "Sending…" : "Confirm and send"}
                       </button>
                     </div>
                   </div>
