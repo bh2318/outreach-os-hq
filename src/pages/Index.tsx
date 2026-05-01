@@ -7,13 +7,15 @@ import { MocksView } from "@/views/MocksView";
 import { RepliesView } from "@/views/RepliesView";
 import { FollowUpsView } from "@/views/FollowUpsView";
 import { PipelineView } from "@/views/PipelineView";
+import { ClientHistoryView } from "@/views/ClientHistoryView";
 import { ActivityView } from "@/views/ActivityView";
 import { SettingsView } from "@/views/SettingsView";
 import { TAB_NAV_EVENT } from "@/lib/nav";
 
 const TAB_KEY = "outreach_os_active_tab";
 const VALID_TABS: TabId[] = [
-  "dashboard", "leads", "mocks", "replies", "followups", "pipeline", "activity", "settings",
+  "dashboard", "leads", "mocks", "replies", "followups",
+  "pipeline", "clients", "activity", "settings",
 ];
 
 const Index = () => {
@@ -21,9 +23,9 @@ const Index = () => {
     const stored = localStorage.getItem(TAB_KEY) as TabId | null;
     return stored && VALID_TABS.includes(stored) ? stored : "dashboard";
   });
+
   useEffect(() => { localStorage.setItem(TAB_KEY, tab); }, [tab]);
 
-  // Listen for cross-component tab switches dispatched via navigateTab().
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<TabId>).detail;
@@ -44,6 +46,7 @@ const Index = () => {
         {tab === "replies" && <RepliesView />}
         {tab === "followups" && <FollowUpsView />}
         {tab === "pipeline" && <PipelineView />}
+        {tab === "clients" && <ClientHistoryView />}
         {tab === "activity" && <ActivityView />}
         {tab === "settings" && <SettingsView />}
       </main>
