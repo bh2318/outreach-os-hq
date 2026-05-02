@@ -1,8 +1,4 @@
 // receive-reply
-// Public webhook endpoint for incoming Gmail-forwarded replies.
-// No auth header check — Gmail forwarders cannot send auth tokens.
-// Always responds 200 to prevent Gmail retry loops.
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -113,13 +109,10 @@ function stripHtml(s: string): string {
 }
 
 function parseRawEmail(raw: string): { from: string | null; subject: string | null; body: string } {
-  // Normalise line endings, then split headers from body on first blank line.
   const normalized = raw.replace(/\r\n/g, "\n");
   const idx = normalized.indexOf("\n\n");
   const headerBlock = idx === -1 ? normalized : normalized.slice(0, idx);
   let body = idx === -1 ? "" : normalized.slice(idx + 2);
-
-  // Unfold continuation header lines (lines starting with whitespace continue the previous header).
   const headerLines: string[] = [];
   for (const line of headerBlock.split("\n")) {
     if (/^[ \t]/.test(line) && headerLines.length > 0) {
@@ -133,7 +126,6 @@ function parseRawEmail(raw: string): { from: string | null; subject: string | nu
     const m = line.match(/^([A-Za-z-]+):\s*(.*)$/);
     if (m) headers[m[1].toLowerCase()] = m[2];
   }
-
   body = stripHtml(body);
   return {
     from: extractEmailAddress(headers["from"]),
@@ -155,11 +147,10 @@ async function extractFromRequest(req: Request): Promise<{ from: string | null; 
         extractEmailAddress(j.email) ||
         null;
       const subject = j.subject ?? j.Subject ?? null;
-      const body =
-        j.body ?? j.text ?? j.body_text ?? j.message ?? j.content ?? j["body-plain"] ?? "";
+      const body = j.body ?? j.text ?? j.body_text ?? j.message ?? j.content ?? j["body-plain"] ?? "";
       if (from || subject || body) return { from, subject, body: String(body) };
     } catch {
-      // fall through to raw parsing
+      // fall through
     }
   }
   return parseRawEmail(text);
@@ -195,26 +186,14 @@ Deno.serve(async (req) => {
 
   try {
     const { from, subject, body } = await extractFromRequest(req);
-    console.log(`[receive-reply] incoming from="${from}" subject="${subject}" bodyLen=${body?.length ?? 0}`);
-
-    if (!from) {
-      console.warn("[receive-reply] could not extract sender address");
-      return ok({ status: "success", message: "no sender extracted" });
-    }
+    if (!from) return ok({ status: "success", message: "no sender extracted" });
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANTHROPIC = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC) {
-      console.error("[receive-reply] ANTHROPIC_API_KEY not configured");
-      return ok({ status: "success", message: "anthropic key missing" });
-    }
+    if (!ANTHROPIC) return ok({ status: "success", message: "anthropic key missing" });
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // Step 1 — match lead by sender email.
-    // Special case: when the reply comes from our own outreach inbox
-    // (b.h.weboutreach@gmail.com — used for test sends), match the most
-    // recently contacted lead via outreach_emails instead of the email column.
     const TEST_INBOX = "b.h.weboutreach@gmail.com";
     let lead: { id: string; business_name: string; email: string | null } | null = null;
 
@@ -235,25 +214,19 @@ Deno.serve(async (req) => {
         lead = l ?? null;
       }
     } else {
-      const { data: l, error: leadErr } = await supabase
+      const { data: l } = await supabase
         .from("leads")
         .select("id, business_name, email")
         .ilike("email", from)
         .maybeSingle();
-      if (leadErr) console.error("[receive-reply] lead lookup error", leadErr);
       lead = l ?? null;
     }
 
-    if (!lead) {
-      console.warn(`[receive-reply] no matching lead for sender=${from}`);
-      return ok({ status: "success", message: "no matching lead found", sender: from });
-    }
+    if (!lead) return ok({ status: "success", message: "no matching lead found", sender: from });
 
     const now = new Date().toISOString();
 
-    // Step 1.5 — Duplicate reply protection.
-    // If a reply from this exact email arrived in the last 24h, append to that
-    // reply card (under a "Follow-up message received" label) instead of creating a new one.
+    // Duplicate reply protection
     const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: recentDup } = await supabase
       .from("replies")
@@ -277,7 +250,7 @@ Deno.serve(async (req) => {
       return ok({ status: "success", classification: "DUPLICATE_APPENDED", lead_id: lead.id });
     }
 
-    // Step 1.6 — Compute minutes between outreach send and this reply.
+    // Reply time calculation
     let replyMinutes: number | null = null;
     {
       const { data: lastSent } = await supabase
@@ -294,9 +267,10 @@ Deno.serve(async (req) => {
     }
 
     const trimmedBody = (body || "").trim();
+
+    // STOP detection
     const isStop = /\bstop\b/i.test(trimmedBody) && trimmedBody.length < 80;
     if (isStop) {
-      console.log(`[receive-reply] STOP detected for ${lead.business_name}`);
       await supabase.from("unsubscribed").upsert(
         { email: from, lead_id: lead.id, reason: "replied STOP" },
         { onConflict: "email" },
@@ -312,7 +286,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 1.0,
         actioned: true,
-        reply_minutes_after_outreach: replyMinutes,
+        reply_time_minutes: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
@@ -324,14 +298,12 @@ Deno.serve(async (req) => {
       return ok({ status: "success", classification: "STOP", lead_id: lead.id });
     }
 
-    // Step 3 — signed agreement detection (advances pipeline directly).
+    // Signed agreement detection
     const lowerBody = trimmedBody.toLowerCase();
     const looksLikeAgreement =
       /(signed|signature|agreement|contract)/.test(lowerBody) &&
       /(attached|enclosed|here|sending|sent|back)/.test(lowerBody);
     if (looksLikeAgreement) {
-      console.log(`[receive-reply] signed agreement detected for ${lead.business_name}`);
-      // Find latest deal for lead, or create one in agreement_received stage.
       const { data: existingDeal } = await supabase
         .from("deals")
         .select("id")
@@ -361,7 +333,7 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
-        reply_minutes_after_outreach: replyMinutes,
+        reply_time_minutes: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "deal_updated",
@@ -373,89 +345,67 @@ Deno.serve(async (req) => {
       return ok({ status: "success", classification: "AGREEMENT", lead_id: lead.id });
     }
 
-    // Step 4 — classify
+    // Classify
     let classification: "YES" | "NO" | "MAYBE";
     try {
       classification = await classifyWithClaude(ANTHROPIC, body);
     } catch (e) {
-      console.error("[receive-reply] classification failed", e);
       return ok({ status: "success", message: "classification failed", error: String(e) });
     }
-    console.log(`[receive-reply] classified=${classification} lead=${lead.business_name}`);
 
-
-    // Pull richer lead info for draft personalization (county etc.)
     const { data: leadFull } = await supabase
       .from("leads")
-      .select("id,business_name,owner_name,city,state,county,niche,rating,review_count")
+      .select("id,business_name,owner_name,city,state,niche,rating,review_count")
       .eq("id", lead.id)
       .maybeSingle();
-    const fullCounty = (() => {
-      const c = (leadFull?.county || leadFull?.city || "").trim();
-      if (!c) return "";
-      return /county$/i.test(c) ? c : `${c} County`;
-    })();
+
     const leadContext = [
       `business_name: ${leadFull?.business_name ?? lead.business_name}`,
       `owner_name: ${leadFull?.owner_name ?? ""}`,
       `niche: ${leadFull?.niche ?? ""}`,
       `city: ${leadFull?.city ?? ""}`,
       `state: ${leadFull?.state ?? ""}`,
-      `county: ${fullCounty}`,
       "",
       `their_reply: ${body}`,
       "",
       "Write the reply email now.",
     ].join("\n");
 
-    // Step 3 — branch
     if (classification === "YES") {
-      // Fire-and-forget operator notification email via Resend
+      // Notify operator
       try {
         const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
         const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL");
         if (RESEND_API_KEY && RESEND_FROM_EMAIL) {
-          const escapeHtml = (s: string) =>
-            s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          const text = `${lead.business_name}\n\n${body}`;
-          const html = `<p>${escapeHtml(lead.business_name)}</p><pre style="font-family:inherit;white-space:pre-wrap;margin:0">${escapeHtml(body)}</pre>`;
-          const r = await fetch("https://api.resend.com/emails", {
+          const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          await fetch("https://api.resend.com/emails", {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${RESEND_API_KEY}`,
-              "Content-Type": "application/json",
-            },
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({
               from: `Brad Hemminger <${RESEND_FROM_EMAIL}>`,
               to: ["b.hemminger18@gmail.com"],
               subject: "Outreach OS — New reply waiting for you",
-              text,
-              html,
+              text: `${lead.business_name}\n\n${body}`,
+              html: `<p>${escHtml(lead.business_name)}</p><pre style="font-family:inherit;white-space:pre-wrap;margin:0">${escHtml(body)}</pre>`,
             }),
           });
-          if (!r.ok) console.error("[receive-reply] operator notify failed", r.status, await r.text());
-        } else {
-          console.warn("[receive-reply] RESEND_API_KEY or RESEND_FROM_EMAIL missing — skipping operator notify");
         }
       } catch (e) {
         console.error("[receive-reply] operator notify error", e);
       }
 
-      const draft = YES_FIXED_BODY;
       const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
+
+      // Insert notification with only real columns
       await supabase.from("notifications").insert({
         lead_id: lead.id,
         type: "yes_reply",
-        kind: "yes_reply",
-        business_name: lead.business_name,
-        reply_body: body,
-        reply_full: body,
-        reply_preview: body.slice(0, 200),
+        message: `${lead.business_name} replied YES — mock requested`,
         read: false,
-        acted_on: false,
-        status: "unread",
         created_at: now,
       });
+
+      // Insert reply with only real columns
       await supabase.from("replies").insert({
         lead_id: lead.id,
         from_email: from,
@@ -466,11 +416,10 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: false,
-        draft_response: draft,
-        draft_subject: draftSubject,
-        reply_minutes_after_outreach: replyMinutes,
+        draft_response: YES_FIXED_BODY,
+        reply_time_minutes: replyMinutes,
       });
-      // Extract website goal + any client-supplied image URLs from the reply.
+
       const websiteGoal = await extractGoalWithClaude(ANTHROPIC, body);
       const clientAssetUrls = extractImageUrls(body);
       const clientAssets = clientAssetUrls.map((u) => ({ url: u, source: "client_reply" }));
@@ -484,7 +433,6 @@ Deno.serve(async (req) => {
         })
         .eq("id", lead.id);
 
-      // Insert a mock_sites row so the Mock Studio picks this lead up immediately.
       await supabase.from("mock_sites").insert({
         lead_id: lead.id,
         status: "not-generated",
@@ -498,6 +446,7 @@ Deno.serve(async (req) => {
         detail: "lead replied YES — moved to Mock Studio",
         outcome: "success",
       });
+
     } else if (classification === "NO") {
       await supabase.from("leads").update({ status: "archived" }).eq("id", lead.id);
       await supabase.from("replies").insert({
@@ -510,15 +459,16 @@ Deno.serve(async (req) => {
         classified_at: now,
         confidence: 0.95,
         actioned: true,
-        reply_minutes_after_outreach: replyMinutes,
+        reply_time_minutes: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
         business_name: lead.business_name,
         lead_id: lead.id,
-        detail: "lead replied not interested sequence halted",
+        detail: "lead replied not interested — sequence halted",
         outcome: "success",
       });
+
     } else {
       const draft = await draftReplyWithClaude(ANTHROPIC, MAYBE_DRAFT_PROMPT, leadContext);
       const draftSubject = subject ? `Re: ${subject.replace(/^re:\s*/i, "")}` : `Re: ${lead.business_name}`;
@@ -533,8 +483,7 @@ Deno.serve(async (req) => {
         confidence: 0.7,
         actioned: false,
         draft_response: draft || null,
-        draft_subject: draftSubject,
-        reply_minutes_after_outreach: replyMinutes,
+        reply_time_minutes: replyMinutes,
       });
       await supabase.from("activity_log").insert({
         action_type: "reply_received",
