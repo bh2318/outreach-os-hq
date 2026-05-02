@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 type Reply = any;
 
 type IntentMeta = {
-  group: "yes" | "maybe" | "call" | "contract" | "no" | "stop";
+  group: "info_received" | "maybe" | "contract" | "no" | "stop";
   tone: StatusTone;
   badge: string;
   instruction: string;
@@ -21,48 +21,47 @@ type IntentMeta = {
   draftFn: string | null;
   sendFn: string;
   hideDraft?: boolean;
+  showMockButton?: boolean;
 };
 
 function intentMeta(r: Reply): IntentMeta {
   const intent = r.intent ?? "unknown";
   const body = (r.body ?? "").toLowerCase();
-  const looksLikeContract = /signed|contract|agreement|sign/i.test(body) && r.lead_id;
+  const looksLikeContract =
+    /(signed|signature|agreement|contract)/.test(body) && r.lead_id;
 
   if (intent === "unsubscribe") {
     return {
       group: "stop", tone: "gray", badge: "Unsubscribed",
-      instruction: "Unsubscribed — this contact has been removed from all outreach.",
+      instruction: "This contact has been removed from all outreach permanently.",
       sortKey: 5, draftFn: null, sendFn: "", hideDraft: true,
     };
   }
-  if (intent === "call_request") {
-    return {
-      group: "call", tone: "red", badge: "Call requested",
-      instruction: "Schedule a call — contact them at the number above.",
-      sortKey: 2, draftFn: "draft-yes-response", sendFn: "send-yes-response",
-    };
-  }
+
   if (looksLikeContract && (intent === "interested" || intent === "needs_response")) {
     return {
       group: "contract", tone: "green", badge: "Agreement received",
-      instruction: "Agreement received — pipeline advanced. Build their site.",
-      sortKey: 3, draftFn: null, sendFn: "send-yes-response",
+      instruction: "Signed agreement received — pipeline has been advanced. Begin building their site.",
+      sortKey: 0, draftFn: null, sendFn: "", hideDraft: true,
     };
   }
-  if (intent === "interested" || intent === "mock_request" || intent === "price_inquiry") {
+
+  if (intent === "info_received") {
     return {
-      group: "yes", tone: "green", badge: "Interested",
-      instruction: "Free mock website is being built — review and confirm the pre-drafted response below.",
-      sortKey: 0, draftFn: "draft-yes-response", sendFn: "send-yes-response",
+      group: "info_received", tone: "green", badge: "Info received",
+      instruction: "They sent their business information. Review the pre-drafted response below, confirm and send, then move them to Mock Studio to build their preview.",
+      sortKey: 1, draftFn: "draft-yes-response", sendFn: "send-yes-response", showMockButton: true,
     };
   }
+
   if (intent === "needs_response" || intent === "unknown") {
     return {
       group: "maybe", tone: "blue", badge: "Question",
-      instruction: "They have a question — review the pre-drafted response and confirm when ready.",
-      sortKey: 1, draftFn: "draft-maybe-response", sendFn: "send-maybe-response",
+      instruction: "They have a question before moving forward. Review the response below, make sure it addresses their specific concern clearly, and confirm when ready.",
+      sortKey: 2, draftFn: "draft-maybe-response", sendFn: "send-maybe-response",
     };
   }
+
   return {
     group: "no", tone: "gray", badge: "Not interested",
     instruction: "",
@@ -86,9 +85,12 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
   const m = useMemo(() => intentMeta(reply), [reply]);
   const lead = reply.leads;
   const [draft, setDraft] = useState<string>(reply.draft_response ?? "");
-  const [subject, setSubject] = useState<string>(reply.draft_subject ?? `Re: ${lead?.business_name ?? ""}`);
+  const [subject, setSubject] = useState<string>(
+    reply.draft_subject ?? `Re: ${lead?.business_name ?? ""}`
+  );
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
   const [generating, setGenerating] = useState(false);
   const { label: replyTimeLabel, isHot } = getReplyTimeLabel(reply);
 
@@ -107,7 +109,10 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
         if (d) {
           setDraft(d);
           if (subj) setSubject(subj);
-          await supabase.from("replies").update({ draft_response: d, draft_subject: subj ?? subject }).eq("id", reply.id);
+          await supabase
+            .from("replies")
+            .update({ draft_response: d, draft_subject: subj ?? subject })
+            .eq("id", reply.id);
         }
       } catch (e) {
         console.error(e);
@@ -126,12 +131,17 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
         .update({ archived: true, actioned: true })
         .eq("id", reply.id);
       await logActivity({
-        action_type: "replied", business_name: lead?.business_name,
-        detail: "Reply archived", outcome: "warning", lead_id: reply.lead_id,
+        action_type: "replied",
+        business_name: lead?.business_name,
+        detail: "Reply archived",
+        outcome: "warning",
+        lead_id: reply.lead_id,
       });
       toast.success("Archived");
       onDismiss(reply.id);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmAndSend() {
@@ -146,17 +156,56 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
       await supabase.from("replies").update({ actioned: true }).eq("id", reply.id);
       await supabase
         .from("notifications")
-        .update({ acted_on: true, read: true, status: "acted", acted_at: new Date().toISOString() })
+        .update({ acted_on: true, read: true, status: "acted" })
         .eq("lead_id", reply.lead_id)
         .eq("acted_on", false);
       await logActivity({
-        action_type: "replied", business_name: lead?.business_name,
-        detail: `Sent ${m.group.toUpperCase()} response`, outcome: "success", lead_id: reply.lead_id,
+        action_type: "replied",
+        business_name: lead?.business_name,
+        detail: `Sent ${m.group.toUpperCase()} response`,
+        outcome: "success",
+        lead_id: reply.lead_id,
       });
       toast.success("Sent");
-      onDismiss(reply.id);
+      setSent(true);
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to send");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveToMockStudio() {
+    setBusy(true);
+    try {
+      await supabase
+        .from("leads")
+        .update({ status: "mock-requested" })
+        .eq("id", reply.lead_id);
+      const { data: existingMock } = await supabase
+        .from("mock_sites")
+        .select("id")
+        .eq("lead_id", reply.lead_id)
+        .maybeSingle();
+      if (!existingMock) {
+        await supabase.from("mock_sites").insert({
+          lead_id: reply.lead_id,
+          status: "not-generated",
+          requested_at: new Date().toISOString(),
+        });
+      }
+      await supabase.from("replies").update({ actioned: true }).eq("id", reply.id);
+      await logActivity({
+        action_type: "mock_requested",
+        business_name: lead?.business_name,
+        detail: "Moved to Mock Studio",
+        outcome: "success",
+        lead_id: reply.lead_id,
+      });
+      toast.success("Moved to Mock Studio");
+      onDismiss(reply.id);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to move to Mock Studio");
     } finally {
       setBusy(false);
     }
@@ -170,6 +219,7 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
     gray: "text-muted-foreground",
     purple: "text-primary-fill-text",
   };
+
   const barBg: Record<StatusTone, string> = {
     red: "bg-status-red-text",
     amber: "bg-status-amber-text",
@@ -184,31 +234,56 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
       <div className={cn("priority-bar", barBg[m.tone])} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="text-[15px] font-bold text-foreground truncate">{lead?.business_name ?? "Unknown"}</div>
+          <div className="text-[15px] font-bold text-foreground truncate">
+            {lead?.business_name ?? reply.from_email ?? "Unknown"}
+          </div>
           {isHot && <span title="Replied within 2 hours — high intent">🔥</span>}
         </div>
         <Badge tone={m.tone}>{m.badge}</Badge>
       </div>
       <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-        <span>{lead?.niche ?? "—"}</span>
-        <span className="text-faint">·</span>
-        <span>{lead?.city ?? "—"}</span>
-        {lead?.phone && <><span className="text-faint">·</span><span>{lead.phone}</span></>}
+        <span>{reply.from_email}</span>
+        {lead?.niche && (
+          <>
+            <span className="text-faint">·</span>
+            <span>{lead.niche}</span>
+          </>
+        )}
+        {lead?.city && (
+          <>
+            <span className="text-faint">·</span>
+            <span>{lead.city}</span>
+          </>
+        )}
+        {lead?.phone && (
+          <>
+            <span className="text-faint">·</span>
+            <span>{lead.phone}</span>
+          </>
+        )}
         <span className="text-faint">·</span>
         <span>{fmtRelative(reply.received_at)}</span>
         {replyTimeLabel && (
           <>
             <span className="text-faint">·</span>
-            <span className={isHot ? "text-status-amber-text font-medium" : ""}>{replyTimeLabel}</span>
+            <span className={isHot ? "text-status-amber-text font-medium" : ""}>
+              {replyTimeLabel}
+            </span>
           </>
         )}
       </div>
+
+      {/* Their message */}
       <div className="mt-3 rounded-md border border-border-faint bg-background/60 px-3 py-2.5 text-[12px] text-foreground whitespace-pre-wrap leading-relaxed">
         {reply.body || <span className="text-faint italic">(empty)</span>}
       </div>
+
+      {/* Instruction */}
       <div className={cn("mt-3 text-[12px] font-medium", accentText[m.tone])}>
         {m.instruction}
       </div>
+
+      {/* Draft */}
       {!m.hideDraft && (
         <div className="mt-3">
           <div className="label-uppercase mb-1.5">Pre-drafted response</div>
@@ -228,12 +303,37 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
           />
         </div>
       )}
-      <div className="mt-3 flex items-center gap-2">
+
+      {/* Actions */}
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
         {m.group === "stop" || m.group === "no" ? (
-          <button className="btn-ghost" onClick={archive} disabled={busy}>Archive</button>
+          <button className="btn-ghost" onClick={archive} disabled={busy}>
+            Archive
+          </button>
+        ) : m.group === "contract" ? (
+          <button className="btn-ghost" onClick={archive} disabled={busy}>
+            Archive
+          </button>
+        ) : sent && m.showMockButton ? (
+          <>
+            <button
+              className="bg-primary hover:bg-primary-hover text-primary-foreground rounded-md px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
+              onClick={moveToMockStudio}
+              disabled={busy}
+            >
+              {busy ? "Moving…" : "Move to Mock Studio"}
+            </button>
+            <button className="btn-ghost ml-auto" onClick={archive} disabled={busy}>
+              Archive
+            </button>
+          </>
         ) : (
           <>
-            <button className="btn-ghost" onClick={() => setEditing((e) => !e)} disabled={busy}>
+            <button
+              className="btn-ghost"
+              onClick={() => setEditing((e) => !e)}
+              disabled={busy}
+            >
               {editing ? "Lock draft" : "Edit draft"}
             </button>
             <button
@@ -243,7 +343,9 @@ function ReplyRow({ reply, onDismiss }: { reply: Reply; onDismiss: (id: string) 
             >
               {busy ? "Sending…" : "Confirm and send"}
             </button>
-            <button className="btn-ghost ml-auto" onClick={archive} disabled={busy}>Archive</button>
+            <button className="btn-ghost ml-auto" onClick={archive} disabled={busy}>
+              Archive
+            </button>
           </>
         )}
       </div>
@@ -272,8 +374,6 @@ export function RepliesView() {
     setDismissed((prev) => new Set([...prev, id]));
   }
 
-  const now = new Date();
-
   const sorted = useMemo(() => {
     return [...(data ?? [])]
       .filter((r: Reply) => {
@@ -281,7 +381,12 @@ export function RepliesView() {
         if (r.actioned) return false;
         if (r.archived) return false;
         const m = intentMeta(r);
+        // Only show cards that need Brad's attention
         if (m.group === "no" || m.group === "stop") return false;
+        // Never show website_lead cards — those are notification only
+        if (r.intent === "website_lead") return false;
+        // Never show interested cards — YES to outreach is handled automatically
+        if (r.intent === "interested") return false;
         return true;
       })
       .sort((a: Reply, b: Reply) => {
@@ -290,19 +395,23 @@ export function RepliesView() {
         if (sa !== sb) return sa - sb;
         return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
       });
-  }, [data, dismissed, now]);
+  }, [data, dismissed]);
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-3">
         <SectionLabel>Replies needing action</SectionLabel>
-        <span className="text-[11px] text-muted-foreground font-mono">{sorted.length} waiting</span>
+        <span className="text-[11px] text-muted-foreground font-mono">
+          {sorted.length} waiting
+        </span>
       </div>
       {isLoading ? null : !sorted.length ? (
         <EmptyState>No replies waiting — the system is running.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {sorted.map((r) => <ReplyRow key={r.id} reply={r} onDismiss={onDismiss} />)}
+          {sorted.map((r) => (
+            <ReplyRow key={r.id} reply={r} onDismiss={onDismiss} />
+          ))}
         </div>
       )}
     </div>
