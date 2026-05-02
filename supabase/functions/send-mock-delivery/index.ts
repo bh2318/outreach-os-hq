@@ -1,9 +1,8 @@
 // send-mock-delivery
-// Emails the generated mock URL + service agreement PDF to the lead.
+// Emails the generated mock URL + service agreement to the lead.
 // Updates lead/mock/deal status and writes activity log.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { jsPDF } from "https://esm.sh/jspdf@2.5.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,8 +19,9 @@ function escapeHtml(s: string) {
     .replace(/'/g, "&#39;");
 }
 
-function buildEmailHtml(bodyText: string, previewUrl: string, businessName: string): string {
+function buildEmailHtml(bodyText: string, previewUrl: string, businessName: string, agreementText: string): string {
   const safeBody = escapeHtml(bodyText).replace(/\n/g, "<br>");
+  const safeAgreement = escapeHtml(agreementText).replace(/\n/g, "<br>");
   return `<!doctype html><html><body style="margin:0;padding:0;background:#f6f6f6;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e">
 <div style="max-width:560px;margin:24px auto;background:#fff;border-radius:10px;padding:28px 24px;box-shadow:0 2px 12px rgba(0,0,0,.06)">
   <div style="font-size:15px;line-height:1.6;color:#222">${safeBody}</div>
@@ -29,47 +29,15 @@ function buildEmailHtml(bodyText: string, previewUrl: string, businessName: stri
     <a href="${escapeHtml(previewUrl)}" style="display:inline-block;background:#534AB7;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 28px;border-radius:8px">View your mock website</a>
   </div>
   <div style="font-size:12px;color:#666;text-align:center;margin-top:6px;word-break:break-all">${escapeHtml(previewUrl)}</div>
+  ${agreementText ? `
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0" />
+  <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:12px">Service Agreement</div>
+  <div style="font-size:12px;line-height:1.7;color:#555;background:#f8f8f8;border-radius:8px;padding:16px">${safeAgreement}</div>
+  ` : ""}
   <hr style="border:none;border-top:1px solid #eee;margin:24px 0" />
   <div style="font-size:11px;color:#888;text-align:center">Sent from Brad Hemminger about ${escapeHtml(businessName)}</div>
 </div>
 </body></html>`;
-}
-
-function buildAgreementPdfBase64(agreementText: string, businessName: string): string {
-  const doc = new jsPDF({ unit: "pt", format: "letter" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 56;
-  const maxWidth = pageWidth - margin * 2;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("Service Agreement", margin, 72);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.text(`Client: ${businessName}`, margin, 100);
-  doc.text(`Date: ${new Date().toLocaleDateString("en-US")}`, margin, 116);
-
-  doc.setLineWidth(0.5);
-  doc.line(margin, 128, pageWidth - margin, 128);
-
-  doc.setFontSize(11);
-  const lines = doc.splitTextToSize(agreementText || "", maxWidth);
-  let y = 148;
-  const lineHeight = 15;
-  const pageHeight = doc.internal.pageSize.getHeight();
-  for (const line of lines) {
-    if (y > pageHeight - margin) {
-      doc.addPage();
-      y = 72;
-    }
-    doc.text(String(line), margin, y);
-    y += lineHeight;
-  }
-
-  // Output as base64 (no data URI prefix)
-  const dataUri = doc.output("datauristring");
-  return dataUri.split(",")[1] ?? "";
 }
 
 Deno.serve(async (req) => {
@@ -134,24 +102,16 @@ Deno.serve(async (req) => {
       .maybeSingle();
     const previewUrl = mock?.preview_url ?? "";
 
-    const html = buildEmailHtml(emailBody, previewUrl, lead.business_name);
-    const pdfBase64 = buildAgreementPdfBase64(agreement, lead.business_name);
+    const html = buildEmailHtml(emailBody, previewUrl, lead.business_name, agreement);
 
-    const resendPayload: any = {
+    const resendPayload = {
       from: `Brad Hemminger <${RESEND_FROM_EMAIL}>`,
       to: [lead.email],
+      reply_to: "weboutreach@bhsites.com",
       subject,
       html,
-      text: `${emailBody}\n\nMock preview: ${previewUrl}`,
+      text: `${emailBody}\n\nMock preview: ${previewUrl}${agreement ? `\n\n---SERVICE AGREEMENT---\n${agreement}` : ""}`,
     };
-    if (pdfBase64) {
-      resendPayload.attachments = [
-        {
-          filename: `Service-Agreement-${lead.business_name.replace(/[^A-Za-z0-9]+/g, "-")}.pdf`,
-          content: pdfBase64,
-        },
-      ];
-    }
 
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -169,7 +129,7 @@ Deno.serve(async (req) => {
         business_name: lead.business_name,
         lead_id: leadId,
         detail: `Resend send failed: ${t.slice(0, 500)}`,
-        outcome: "failure",
+        outcome: "failed",
       });
       return new Response(JSON.stringify({ error: "resend failed", detail: t }), {
         status: 502,
@@ -179,12 +139,11 @@ Deno.serve(async (req) => {
 
     const nowIso = new Date().toISOString();
 
-    // Update lead + mock + deal
     await supabase.from("leads").update({ status: "mock-sent" }).eq("id", leadId);
     if (mock?.id) {
       await supabase.from("mock_sites").update({ status: "sent", sent_at: nowIso }).eq("id", mock.id);
     }
-    // Upsert a deal record at "Proposal Sent"
+
     const { data: existingDeal } = await supabase
       .from("deals")
       .select("id")
@@ -193,12 +152,12 @@ Deno.serve(async (req) => {
     if (existingDeal?.id) {
       await supabase
         .from("deals")
-        .update({ stage: "Proposal Sent", stage_entered_at: nowIso })
+        .update({ stage: "proposal_sent", stage_entered_at: nowIso })
         .eq("id", existingDeal.id);
     } else {
       await supabase.from("deals").insert({
         lead_id: leadId,
-        stage: "Proposal Sent",
+        stage: "proposal_sent",
         stage_entered_at: nowIso,
         estimated_value: 50000,
       });
@@ -208,7 +167,7 @@ Deno.serve(async (req) => {
       action_type: "mock_sent",
       business_name: lead.business_name,
       lead_id: leadId,
-      detail: `Mock + agreement emailed to ${lead.email}`,
+      detail: `Mock + agreement emailed to ${lead.email} — deal moved to Proposal Sent`,
       outcome: "success",
     });
 
