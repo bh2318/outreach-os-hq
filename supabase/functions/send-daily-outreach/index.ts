@@ -7,11 +7,12 @@
 //  - it must be at least settings.minutes_between_cycles since last_cycle_at
 //  - daily_email_cap must not be reached
 // Each cycle:
-//  1. Pull eligible "new" leads. If none, scrape a fresh WA city+niche.
+//  1. Pull eligible "new" leads filtered by min_site_score. If none, scrape a fresh WA city+niche.
 //  2. Process up to leads_per_cycle leads.
 //  3. Resolve email (lead.email > contact@<domain> > phone_only).
 //  4. Generate email via Claude haiku, send via Resend, log everything.
-//  5. Update last_cycle_at + last_cycle_completed_at on settings.
+//  5. Insert followup_queue records for each followup_day.
+//  6. Update last_cycle_at + last_cycle_completed_at on settings.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -23,7 +24,6 @@ const corsHeaders = {
 
 const REPLY_TO = "weboutreach@bhsites.com";
 
-// Washington-state cities + business niches the scraper rotates through.
 const WA_CITIES = [
   "Seattle, WA", "Tacoma, WA", "Spokane, WA", "Bellevue, WA", "Vancouver, WA",
   "Kent, WA", "Everett, WA", "Renton, WA", "Yakima, WA", "Federal Way, WA",
@@ -191,10 +191,10 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // 1. Read settings (the source of truth for every gate)
+    // 1. Read settings
     const { data: settings } = await supabase
       .from("settings")
-      .select("outreach_active, sending_enabled, pacific_send_start, pacific_send_end, leads_per_cycle, minutes_between_cycles, daily_email_cap, last_cycle_at")
+      .select("outreach_active, sending_enabled, pacific_send_start, pacific_send_end, leads_per_cycle, minutes_between_cycles, daily_email_cap, last_cycle_at, min_site_score, followup_days")
       .eq("id", 1)
       .maybeSingle();
 
@@ -203,18 +203,20 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!(settings as any).sending_enabled) {
+    if (!settings.sending_enabled) {
       return new Response(JSON.stringify({ skipped: true, reason: "sending_disabled" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const minutesBetween = Math.max(1, Math.min(60, Number((settings as any).minutes_between_cycles ?? 5)));
-    const leadsPerCycle = Math.max(1, Math.min(20, Number((settings as any).leads_per_cycle ?? 1)));
-    const dailyCap = Math.max(1, Math.min(1500, Number((settings as any).daily_email_cap ?? 288)));
+    const minutesBetween = Math.max(1, Math.min(60, Number(settings.minutes_between_cycles ?? 5)));
+    const leadsPerCycle = Math.max(1, Math.min(20, Number(settings.leads_per_cycle ?? 1)));
+    const dailyCap = Math.max(1, Math.min(1500, Number(settings.daily_email_cap ?? 288)));
+    const minSiteScore = Number(settings.min_site_score ?? 0);
+    const followupDays: number[] = Array.isArray(settings.followup_days) ? settings.followup_days : [4, 9, 18];
 
     // Interval gate
-    const lastCycleAt = (settings as any).last_cycle_at as string | null;
+    const lastCycleAt = settings.last_cycle_at as string | null;
     if (lastCycleAt) {
       const elapsed = Date.now() - new Date(lastCycleAt).getTime();
       const required = minutesBetween * 60 * 1000;
@@ -227,15 +229,15 @@ Deno.serve(async (req) => {
 
     // Sending window gate
     const nowPacific = getPacificHHMM();
-    const startTime = (settings as any).pacific_send_start ?? "08:00:00";
-    const endTime = (settings as any).pacific_send_end ?? "18:00:00";
+    const startTime = settings.pacific_send_start ?? "08:00:00";
+    const endTime = settings.pacific_send_end ?? "18:00:00";
     if (!inWindow(nowPacific, startTime, endTime)) {
       await logActivity(supabase, {
         action_type: "system",
         detail: `Outside sending window — cycle skipped (Pacific ${nowPacific}, window ${startTime.slice(0, 5)}–${endTime.slice(0, 5)})`,
         outcome: "warning",
       });
-      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() } as any).eq("id", 1);
+      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() }).eq("id", 1);
       return new Response(JSON.stringify({ skipped: true, reason: "outside_window" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -254,7 +256,7 @@ Deno.serve(async (req) => {
         detail: `Daily cap reached — ${sentToday}/${dailyCap} emails sent today. No further outreach until tomorrow.`,
         outcome: "warning",
       });
-      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() } as any).eq("id", 1);
+      await supabase.from("settings").update({ last_cycle_at: new Date().toISOString() }).eq("id", 1);
       return new Response(JSON.stringify({ skipped: true, reason: "daily_cap_reached", sentToday, dailyCap }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -264,14 +266,15 @@ Deno.serve(async (req) => {
 
     // Mark cycle started
     const cycleStartedAt = new Date().toISOString();
-    await supabase.from("settings").update({ last_cycle_at: cycleStartedAt } as any).eq("id", 1);
+    await supabase.from("settings").update({ last_cycle_at: cycleStartedAt }).eq("id", 1);
 
-    // 2. Look for "new" leads
+    // 2. Look for "new" leads filtered by min_site_score
     let { data: leadsRaw } = await supabase
       .from("leads")
       .select("id,business_name,email,phone,address,niche,city,state,website_url,rating,review_count,site_score,status")
       .eq("status", "new")
       .eq("archived", false)
+      .gte("site_score", minSiteScore)
       .order("site_score", { ascending: false })
       .limit(cycleLimit);
 
@@ -307,6 +310,7 @@ Deno.serve(async (req) => {
         .select("id,business_name,email,phone,address,niche,city,state,website_url,rating,review_count,site_score,status")
         .eq("status", "new")
         .eq("archived", false)
+        .gte("site_score", minSiteScore)
         .order("site_score", { ascending: false })
         .limit(cycleLimit);
       leadsRaw = refetch.data;
@@ -341,6 +345,8 @@ Deno.serve(async (req) => {
         const { subject, body } = await generateEmail(ANTHROPIC, lead);
         const resendId = await sendViaResend(RESEND, FROM_ADDRESS, dest, subject, body, lead.id);
         const now = new Date().toISOString();
+
+        // Log outreach email
         await supabase.from("outreach_emails").insert({
           lead_id: lead.id,
           sequence_number: 1,
@@ -349,15 +355,32 @@ Deno.serve(async (req) => {
           status: "sent",
           sent_at: now,
         });
+
+        // Update lead status
         await supabase
           .from("leads")
           .update({ status: "contacted", last_contacted: now, outreach_count: 1 })
           .eq("id", lead.id);
+
+        // Insert followup_queue records for each followup day
+        const followupRecords = followupDays.map((day: number, index: number) => {
+          const dueDate = new Date();
+          dueDate.setDate(dueDate.getDate() + day);
+          dueDate.setHours(9, 0, 0, 0); // Schedule for 9am on the due date
+          return {
+            lead_id: lead.id,
+            followup_number: index + 1,
+            scheduled_for: dueDate.toISOString(),
+            status: "pending",
+          };
+        });
+        await supabase.from("followup_queue").insert(followupRecords);
+
         await logActivity(supabase, {
           action_type: "emailed",
           business_name: lead.business_name,
           lead_id: lead.id,
-          detail: `Outreach sent to ${dest} (${lead.business_name}, ${lead.city ?? "—"}) [resend:${resendId ?? "n/a"}]`,
+          detail: `Outreach sent to ${dest} (${lead.business_name}, ${lead.city ?? "—"}) [resend:${resendId ?? "n/a"}] — ${followupDays.length} follow-ups queued`,
           outcome: "success",
         });
         sent++;
@@ -374,7 +397,7 @@ Deno.serve(async (req) => {
     }
 
     const completedAt = new Date().toISOString();
-    await supabase.from("settings").update({ last_cycle_completed_at: completedAt } as any).eq("id", 1);
+    await supabase.from("settings").update({ last_cycle_completed_at: completedAt }).eq("id", 1);
     await logActivity(supabase, {
       action_type: "scraper",
       detail: `Cycle complete — ${sent} sent, ${phoneOnly} phone-only, ${failed} failed`,
